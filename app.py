@@ -46,6 +46,9 @@ st.markdown("""
         background-color: #1c2740 !important; color: #e8edf5 !important;
         border: 1px solid #2e3c59 !important; border-radius: 10px !important;
     }
+    .stPlotlyChart {
+        border-radius: 14px;
+    }
     div[data-testid="stDownloadButton"] button,
     div[data-testid="stDownloadButton"] > button {
         background-color: #1c2740 !important; color: #e8edf5 !important;
@@ -84,10 +87,7 @@ if "arduino_handler"      not in st.session_state: st.session_state.arduino_hand
 if "auto_refresh"         not in st.session_state: st.session_state.auto_refresh = True
 if "intervalo_media_minutos" not in st.session_state: st.session_state.intervalo_media_minutos = 1
 if "intervalo_media_minutos_anterior" not in st.session_state: st.session_state.intervalo_media_minutos_anterior = 1
-if "last_valve_states"    not in st.session_state: st.session_state.last_valve_states = {g: False for g in GASES}
 if "last_read_time"       not in st.session_state: st.session_state.last_read_time = None
-if "valve_stats"          not in st.session_state:
-    st.session_state.valve_stats = {g: {"total_time": 0, "last_opened": None} for g in GASES}
 
 # Histórico bruto: todas as leituras individuais (1 por segundo)
 if "historico_bruto"      not in st.session_state: st.session_state.historico_bruto = deque(maxlen=None)
@@ -202,6 +202,18 @@ def agregar_por_intervalo(df: pd.DataFrame, intervalo_minutos: int) -> pd.DataFr
     return agrupado
 
 
+def formatar_titulo_grafico(texto: str) -> dict:
+    return {
+        "title": {
+            "text": texto,
+            "font": {"size": 28, "color": "#f8fbff", "family": "Segoe UI, Arial, sans-serif"},
+            "x": 0.02,
+            "xanchor": "left",
+        },
+        "margin": {"t": 90, "r": 20, "b": 40, "l": 50},
+    }
+
+
 # BARRA LATERAL
 with st.sidebar:
     st.markdown("### 🔌 Conectividade")
@@ -289,39 +301,6 @@ if st.session_state.connected:
                        f"{amostras_no_buffer} amostras na janela atual  ·  "
                        f"próximo ponto no gráfico em {faltam}s")
 
-    # ── PAINEL DE VÁLVULAS ──────────────────────────────────────────
-    st.subheader("🛠️ Válvulas de Entrada")
-    v_cols = st.columns(len(GASES))
-    for i, (gas, info) in enumerate(GASES.items()):
-        with v_cols[i]:
-            st.markdown(f'<div class="cartao" style="border-top: 3px solid {info["cor"]};">', unsafe_allow_html=True)
-            st.markdown(f"**{info['nome']} ({gas})**")
-            aberta = st.toggle(f"Liberar {gas}", key=f"v_{gas}", value=st.session_state.last_valve_states[gas])
-
-            if aberta != st.session_state.last_valve_states[gas]:
-                if aberta: st.session_state.arduino_handler.open_valve(gas)
-                else:      st.session_state.arduino_handler.close_valve(gas)
-                st.session_state.last_valve_states[gas] = aberta
-
-            # Acumula tempo com válvula aberta
-            if aberta:
-                if st.session_state.valve_stats[gas]["last_opened"] is None:
-                    st.session_state.valve_stats[gas]["last_opened"] = datetime.now()
-            else:
-                if st.session_state.valve_stats[gas]["last_opened"] is not None:
-                    decorrido = (datetime.now() - st.session_state.valve_stats[gas]["last_opened"]).total_seconds()
-                    st.session_state.valve_stats[gas]["total_time"] += decorrido
-                    st.session_state.valve_stats[gas]["last_opened"] = None
-
-            cor_status   = "#34d399" if aberta else "#f87171"
-            texto_status = "● LIBERADA" if aberta else "○ FECHADA"
-            st.markdown(f'<span style="color:{cor_status};">{texto_status}</span>', unsafe_allow_html=True)
-            st.markdown(
-                f'<div class="texto-mono">Tempo acumulado: {int(st.session_state.valve_stats[gas]["total_time"])}s</div>',
-                unsafe_allow_html=True,
-            )
-            st.markdown("</div>", unsafe_allow_html=True)
-
     if not df_bruto.empty:
         # ── LEITURAS ATUAIS (última leitura bruta) ──────────────────
         st.subheader("📊 Leituras Atuais")
@@ -362,7 +341,8 @@ if st.session_state.connected:
                         name="O2 (ppm)", line=dict(color=GASES["O2"]["cor"], width=2),
                     ))
                     fig_pre_o2.update_layout(
-                        title="Concentração de O2", template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
+                        **formatar_titulo_grafico("Concentração de O2"),
+                        template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
                         plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)", height=280,
                     )
                     st.plotly_chart(fig_pre_o2, width="stretch")
@@ -373,7 +353,8 @@ if st.session_state.connected:
                         name="H2 (ppm)", line=dict(color=GASES["H2"]["cor"], width=2),
                     ))
                     fig_pre_h2.update_layout(
-                        title="Concentração de H2", template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
+                        **formatar_titulo_grafico("Concentração de H2"),
+                        template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
                         plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)", height=280,
                     )
                     st.plotly_chart(fig_pre_h2, width="stretch")
@@ -386,7 +367,9 @@ if st.session_state.connected:
                     mode="lines+markers", line=dict(color=GASES["O2"]["cor"], width=3), marker=dict(size=7),
                 ))
                 fig_o2.update_layout(
-                    title=f"Concentração de O2 - média de {st.session_state.intervalo_media_minutos} minuto(s)",
+                    **formatar_titulo_grafico(
+                        f"Concentração de O2 - média de {st.session_state.intervalo_media_minutos} minuto(s)"
+                    ),
                     template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
                     plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)",
                 )
@@ -399,7 +382,9 @@ if st.session_state.connected:
                     mode="lines+markers", line=dict(color=GASES["H2"]["cor"], width=3), marker=dict(size=7),
                 ))
                 fig_h2.update_layout(
-                    title=f"Concentração de H2 - média de {st.session_state.intervalo_media_minutos} minuto(s)",
+                    **formatar_titulo_grafico(
+                        f"Concentração de H2 - média de {st.session_state.intervalo_media_minutos} minuto(s)"
+                    ),
                     template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
                     plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)",
                 )
@@ -416,7 +401,8 @@ if st.session_state.connected:
                         line=dict(color=GASES["O2"]["cor"], width=2, dash="dot"),
                     ))
                     fig_preview_o2.update_layout(
-                        title="Concentração de O2 em andamento", template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
+                        **formatar_titulo_grafico("Concentração de O2 em andamento"),
+                        template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
                         plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)", height=260,
                     )
                     st.plotly_chart(fig_preview_o2, width="stretch")
@@ -428,7 +414,8 @@ if st.session_state.connected:
                         line=dict(color=GASES["H2"]["cor"], width=2, dash="dot"),
                     ))
                     fig_preview_h2.update_layout(
-                        title="Concentração de H2 em andamento", template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
+                        **formatar_titulo_grafico("Concentração de H2 em andamento"),
+                        template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
                         plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)", height=260,
                     )
                     st.plotly_chart(fig_preview_h2, width="stretch")
@@ -442,14 +429,19 @@ if st.session_state.connected:
                                             name="Temp (°C)", line=dict(color="#f87171")))
                 fig_ta.add_trace(go.Scatter(x=df_bruto["Timestamp"], y=df_bruto["Ambient_Hum"],
                                             name="Umidade (%)", line=dict(color="#60a5fa")), secondary_y=True)
-                fig_ta.update_layout(title="Condições Ambientais - Temperatura e Umidade",
-                                     template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                fig_ta.update_layout(
+                    **formatar_titulo_grafico("Condições Ambientais - Temperatura e Umidade"),
+                    template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
+                )
                 st.plotly_chart(fig_ta, width="stretch")
             with col_b:
                 fig_p = go.Figure(go.Scatter(x=df_bruto["Timestamp"], y=df_bruto["Ambient_Pressure"],
                                              name="Pressão (bar)", line=dict(color="#c084fc", width=3)))
-                fig_p.update_layout(title="Pressão Atmosférica", template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
-                                    plot_bgcolor="rgba(0,0,0,0)", yaxis_title="bar")
+                fig_p.update_layout(
+                    **formatar_titulo_grafico("Pressão Atmosférica"),
+                    template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)", yaxis_title="bar"
+                )
                 st.plotly_chart(fig_p, width="stretch")
 
         # ── ABA: HISTÓRICO E DOWNLOADS ───────────────────────────────
