@@ -17,6 +17,10 @@ st.set_page_config(page_title="Monitor do Misturador de Gás", page_icon="⚗️
 st.markdown("""
 <style>
     .stApp { background-color: #0a0f1c !important; }
+    header[data-testid="stHeader"], div[data-testid="stHeader"],
+    div[data-testid="stToolbar"] {
+        background-color: #0a0f1c !important;
+    }
     section[data-testid="stSidebar"], section[data-testid="stSidebar"] > div,
     section[data-testid="stSidebar"] [data-testid="stSidebarContent"],
     section[data-testid="stSidebar"] [data-testid="stSidebarContent"] > div,
@@ -39,6 +43,11 @@ st.markdown("""
     }
     div[data-testid="stMetricLabel"] { color: #8b97ad !important; }
     .stButton>button {
+        background-color: #1c2740 !important; color: #e8edf5 !important;
+        border: 1px solid #2e3c59 !important; border-radius: 10px !important;
+    }
+    div[data-testid="stDownloadButton"] button,
+    div[data-testid="stDownloadButton"] > button {
         background-color: #1c2740 !important; color: #e8edf5 !important;
         border: 1px solid #2e3c59 !important; border-radius: 10px !important;
     }
@@ -320,15 +329,15 @@ if st.session_state.connected:
         anterior = df_bruto.iloc[-2] if len(df_bruto) > 1 else ultima
 
         m_cols = st.columns(5)
-        m_cols[0].metric("O2 — Concentração",  f"{ultima['O2_Conc']:.0f} ppm",
-                 f"{ultima['O2_Conc'] - anterior['O2_Conc']:+.0f} ppm")
+        m_cols[0].metric("O2 — Concentração",  f"{ultima['O2_Conc'] / 1e6:.3f} ×10⁶ ppm",
+             f"{(ultima['O2_Conc'] - anterior['O2_Conc']) / 1e6:+.3f} ×10⁶ ppm")
         m_cols[1].metric("H2 — Concentração",  f"{ultima['H2_Conc']:.0f} ppm",
                  f"{ultima['H2_Conc'] - anterior['H2_Conc']:+.0f} ppm")
         m_cols[2].metric("Temperatura",         f"{ultima['Ambient_Temp']:.1f} °C",
                          f"{ultima['Ambient_Temp'] - anterior['Ambient_Temp']:+.1f}")
         m_cols[3].metric("Umidade",             f"{ultima['Ambient_Hum']:.1f} %",
                          f"{ultima['Ambient_Hum'] - anterior['Ambient_Hum']:+.1f}")
-        m_cols[4].metric("Pressão",             f"{ultima['Ambient_Pressure']:.1f} kPa",
+        m_cols[4].metric("Pressão",             f"{ultima['Ambient_Pressure']:.2f} bar",
                          f"{ultima['Ambient_Pressure'] - anterior['Ambient_Pressure']:+.2f}")
 
         # ── ABAS PRINCIPAIS ─────────────────────────────────────────
@@ -347,58 +356,82 @@ if st.session_state.connected:
                 if st.session_state.buffer_minuto:
                     df_buf = pd.DataFrame(st.session_state.buffer_minuto)
                     st.caption(f"Pré-visualização — {len(df_buf)} leituras brutas da janela atual:")
-                    fig_pre = go.Figure()
-                    fig_pre.add_trace(go.Scatter(x=df_buf["Timestamp"], y=df_buf["O2_Conc"],
-                                                 name="O2 (ppm)", line=dict(color=GASES["O2"]["cor"], width=2, dash="dot")))
-                    fig_pre.add_trace(go.Scatter(x=df_buf["Timestamp"], y=df_buf["H2_Conc"],
-                                                 name="H2 (ppm)", line=dict(color=GASES["H2"]["cor"], width=2, dash="dot")))
-                    fig_pre.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
-                                          plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)",
-                                          height=300)
-                    st.plotly_chart(fig_pre, width="stretch")
+                    fig_pre_o2 = go.Figure()
+                    fig_pre_o2.add_trace(go.Scatter(
+                        x=df_buf["Timestamp"], y=df_buf["O2_Conc"],
+                        name="O2 (ppm)", line=dict(color=GASES["O2"]["cor"], width=2),
+                    ))
+                    fig_pre_o2.update_layout(
+                        title="Concentração de O2", template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
+                        plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)", height=280,
+                    )
+                    st.plotly_chart(fig_pre_o2, width="stretch")
+
+                    fig_pre_h2 = go.Figure()
+                    fig_pre_h2.add_trace(go.Scatter(
+                        x=df_buf["Timestamp"], y=df_buf["H2_Conc"],
+                        name="H2 (ppm)", line=dict(color=GASES["H2"]["cor"], width=2),
+                    ))
+                    fig_pre_h2.update_layout(
+                        title="Concentração de H2", template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
+                        plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)", height=280,
+                    )
+                    st.plotly_chart(fig_pre_h2, width="stretch")
             else:
-                # Gráfico principal: 1 ponto por janela completa
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(
+                # Gráficos principais: um para cada gás
+                fig_o2 = go.Figure()
+                fig_o2.add_trace(go.Scatter(
                     x=df_medias["Timestamp"], y=df_medias["O2_Conc_Media"],
-                    name=f"O2 — média/{st.session_state.intervalo_media_minutos} min (ppm)", mode="lines+markers",
-                    line=dict(color=GASES["O2"]["cor"], width=3),
-                    marker=dict(size=7),
+                    name=f"O2 — média/{st.session_state.intervalo_media_minutos} min (ppm)",
+                    mode="lines+markers", line=dict(color=GASES["O2"]["cor"], width=3), marker=dict(size=7),
                 ))
-                fig.add_trace(go.Scatter(
-                    x=df_medias["Timestamp"], y=df_medias["H2_Conc_Media"],
-                    name=f"H2 — média/{st.session_state.intervalo_media_minutos} min (ppm)", mode="lines+markers",
-                    line=dict(color=GASES["H2"]["cor"], width=3),
-                    marker=dict(size=7),
-                ))
-                fig.update_layout(
+                fig_o2.update_layout(
+                    title=f"Concentração de O2 - média de {st.session_state.intervalo_media_minutos} minuto(s)",
                     template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
                     plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)",
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                 )
-                st.plotly_chart(fig, width="stretch")
+                st.plotly_chart(fig_o2, width="stretch")
+
+                fig_h2 = go.Figure()
+                fig_h2.add_trace(go.Scatter(
+                    x=df_medias["Timestamp"], y=df_medias["H2_Conc_Media"],
+                    name=f"H2 — média/{st.session_state.intervalo_media_minutos} min (ppm)",
+                    mode="lines+markers", line=dict(color=GASES["H2"]["cor"], width=3), marker=dict(size=7),
+                ))
+                fig_h2.update_layout(
+                    title=f"Concentração de H2 - média de {st.session_state.intervalo_media_minutos} minuto(s)",
+                    template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)",
+                )
+                st.plotly_chart(fig_h2, width="stretch")
 
                 # Pré-visualização pontilhada do minuto em andamento
                 if st.session_state.buffer_minuto:
                     df_buf = pd.DataFrame(st.session_state.buffer_minuto)
                     st.caption(f"🔄 Acumulando janela atual — {len(df_buf)} amostras / {segundos_ate_proximo_ponto()}s para o próximo ponto")
-                    fig_preview = go.Figure()
-                    fig_preview.add_trace(go.Scatter(
+                    fig_preview_o2 = go.Figure()
+                    fig_preview_o2.add_trace(go.Scatter(
                         x=df_buf["Timestamp"], y=df_buf["O2_Conc"],
                         name="O2 em andamento", mode="lines",
                         line=dict(color=GASES["O2"]["cor"], width=2, dash="dot"),
                     ))
-                    fig_preview.add_trace(go.Scatter(
+                    fig_preview_o2.update_layout(
+                        title="Concentração de O2 em andamento", template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
+                        plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)", height=260,
+                    )
+                    st.plotly_chart(fig_preview_o2, width="stretch")
+
+                    fig_preview_h2 = go.Figure()
+                    fig_preview_h2.add_trace(go.Scatter(
                         x=df_buf["Timestamp"], y=df_buf["H2_Conc"],
                         name="H2 em andamento", mode="lines",
                         line=dict(color=GASES["H2"]["cor"], width=2, dash="dot"),
                     ))
-                    fig_preview.update_layout(
-                        template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
-                        plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)",
-                        height=260,
+                    fig_preview_h2.update_layout(
+                        title="Concentração de H2 em andamento", template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
+                        plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)", height=260,
                     )
-                    st.plotly_chart(fig_preview, width="stretch")
+                    st.plotly_chart(fig_preview_h2, width="stretch")
 
         # ── ABA: CONDIÇÕES AMBIENTAIS (leituras brutas, taxa real) ──
         with tab_amb:
@@ -409,13 +442,14 @@ if st.session_state.connected:
                                             name="Temp (°C)", line=dict(color="#f87171")))
                 fig_ta.add_trace(go.Scatter(x=df_bruto["Timestamp"], y=df_bruto["Ambient_Hum"],
                                             name="Umidade (%)", line=dict(color="#60a5fa")), secondary_y=True)
-                fig_ta.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                fig_ta.update_layout(title="Condições Ambientais - Temperatura e Umidade",
+                                     template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
                 st.plotly_chart(fig_ta, width="stretch")
             with col_b:
                 fig_p = go.Figure(go.Scatter(x=df_bruto["Timestamp"], y=df_bruto["Ambient_Pressure"],
-                                             name="Pressão (kPa)", line=dict(color="#c084fc", width=3)))
-                fig_p.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
-                                    plot_bgcolor="rgba(0,0,0,0)", yaxis_title="kPa")
+                                             name="Pressão (bar)", line=dict(color="#c084fc", width=3)))
+                fig_p.update_layout(title="Pressão Atmosférica", template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
+                                    plot_bgcolor="rgba(0,0,0,0)", yaxis_title="bar")
                 st.plotly_chart(fig_p, width="stretch")
 
         # ── ABA: HISTÓRICO E DOWNLOADS ───────────────────────────────
@@ -428,7 +462,7 @@ if st.session_state.connected:
                 colunas_rt = ["Timestamp", "O2_Conc", "H2_Conc",
                               "Ambient_Temp", "Ambient_Hum", "Ambient_Pressure"]
                 df_rt_exib = df_bruto[colunas_rt].sort_values("Timestamp", ascending=False)
-                df_rt_exib.columns = ["Timestamp", "O2 (ppm)", "H2 (ppm)", "Temp (°C)", "Umidade (%)", "Pressão (kPa)"]
+                df_rt_exib.columns = ["Timestamp", "O2 (ppm)", "H2 (ppm)", "Temp (°C)", "Umidade (%)", "Pressão (bar)"]
                 st.dataframe(df_rt_exib, width="stretch")
                 st.download_button(
                     "⬇️ Baixar leituras em tempo real (CSV)",
@@ -452,7 +486,7 @@ if st.session_state.connected:
                                    "Ambient_Temp", "Ambient_Hum", "Ambient_Pressure", "N_Amostras"]
                     df_med_exib = df_medias[colunas_med].sort_values("Timestamp", ascending=False)
                     df_med_exib.columns = ["Timestamp", "O2 média (ppm)", "H2 média (ppm)",
-                                           "Temp (°C)", "Umidade (%)", "Pressão (kPa)", "Nº amostras"]
+                                           "Temp (°C)", "Umidade (%)", "Pressão (bar)", "Nº amostras"]
                     st.dataframe(df_med_exib, width="stretch")
                     st.download_button(
                         "⬇️ Baixar médias por janela (CSV)",
