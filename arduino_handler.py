@@ -17,6 +17,7 @@ valores em ``VALVE_COMMANDS``.
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 from typing import Any, Dict, Optional
 
@@ -34,6 +35,7 @@ class ArduinoHandler:
 
     def __init__(self, arduino: ArduinoConnection):
         self.arduino = arduino
+        self._latest_ambient: Dict[str, float] = {}
 
     def is_connected(self) -> bool:
         return self.arduino.is_open()
@@ -47,7 +49,17 @@ class ArduinoHandler:
             return None
 
         parsed = self._parse_sensor_line(line)
-        return parsed if parsed is not None else None
+        if parsed is None:
+            return None
+
+        if parsed.pop("_ambient_only", False):
+            self._latest_ambient.update(parsed)
+            return None
+
+        if self._latest_ambient:
+            parsed = {**self._latest_ambient, **parsed}
+
+        return parsed
 
     def get_dataframe_format(self, dado_bruto: Dict[str, Any]) -> Dict[str, Any]:
         return {
@@ -75,9 +87,17 @@ class ArduinoHandler:
         return self.arduino.write_command(command_set[action])
 
     def _parse_sensor_line(self, line: str) -> Optional[Dict[str, Any]]:
-        raw_line = line.strip()
+        raw_line = self._strip_serial_prefix(line)
         if not raw_line:
             return None
+
+        mq_payload = self._try_parse_mq_line(raw_line)
+        if mq_payload is not None:
+            return mq_payload
+
+        ambient_payload = self._try_parse_ambient_line(raw_line)
+        if ambient_payload is not None:
+            return ambient_payload
 
         json_payload = self._try_parse_json(raw_line)
         if json_payload is not None:
@@ -92,6 +112,54 @@ class ArduinoHandler:
             return csv_payload
 
         return None
+
+    def _strip_serial_prefix(self, line: str) -> str:
+        stripped = line.strip()
+        if "->" not in stripped:
+            return stripped
+
+        _, payload = stripped.split("->", 1)
+        return payload.strip()
+
+    def _try_parse_mq_line(self, line: str) -> Optional[Dict[str, Any]]:
+        match = re.search(r"Medida\s+MQ8:\s*([+-]?\d+(?:[\.,]\d+)?)", line, flags=re.IGNORECASE)
+        if not match:
+            return None
+
+        mq8_value = self._coerce_number(match.group(1))
+        if mq8_value is None:
+            return None
+
+        # MQ8 alimenta o canal de H2 neste projeto.
+        return {
+            "mq8": mq8_value,
+            "H2_Raw": mq8_value,
+        }
+
+    def _try_parse_ambient_line(self, line: str) -> Optional[Dict[str, Any]]:
+        temp_match = re.search(r"Temperature\s*=\s*([+-]?\d+(?:[\.,]\d+)?)", line, flags=re.IGNORECASE)
+        hum_match = re.search(r"Humidity\s*=\s*([+-]?\d+(?:[\.,]\d+)?)", line, flags=re.IGNORECASE)
+        bar_match = re.search(r"Bar\s*=\s*([+-]?\d+(?:[\.,]\d+)?)", line, flags=re.IGNORECASE)
+
+        if not (temp_match and hum_match and bar_match):
+            return None
+
+        temp_value = self._coerce_number(temp_match.group(1))
+        hum_value = self._coerce_number(hum_match.group(1))
+        bar_value = self._coerce_number(bar_match.group(1))
+
+        if temp_value is None or hum_value is None or bar_value is None:
+            return None
+
+        return {
+            "Ambient_Temp": temp_value,
+            "Ambient_Hum": hum_value,
+            "Ambient_Pressure": bar_value,
+            "temp": temp_value,
+            "humidity": hum_value,
+            "pressure": bar_value,
+            "_ambient_only": True,
+        }
 
     def _try_parse_json(self, line: str) -> Optional[Dict[str, Any]]:
         if not (line.startswith("{") and line.endswith("}")):
@@ -147,6 +215,12 @@ class ArduinoHandler:
                 value = self._coerce_number(data[key])
                 if value is not None:
                     return float(value)
+
+        if "H2_Raw" in keys:
+            value = self._coerce_number(data.get("mq8"))
+            if value is not None:
+                return float(value)
+
         return float("nan")
 
     def _coerce_number(self, value: Any) -> Optional[float]:
