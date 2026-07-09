@@ -430,7 +430,7 @@ if st.session_state.connected:
                 fig_ta.add_trace(go.Scatter(x=df_bruto["Timestamp"], y=df_bruto["Ambient_Hum"],
                                             name="Umidade (%)", line=dict(color="#60a5fa")), secondary_y=True)
                 fig_ta.update_layout(
-                    **formatar_titulo_grafico("Condições Ambientais - Temperatura e Umidade"),
+                    **formatar_titulo_grafico("Temperatura e Umidade"),
                     template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
                 )
                 st.plotly_chart(fig_ta, width="stretch")
