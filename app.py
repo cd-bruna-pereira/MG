@@ -17,6 +17,12 @@ st.set_page_config(page_title="Monitor do Misturador de Gás", page_icon="⚗️
 st.markdown("""
 <style>
     .stApp { background-color: #0a0f1c !important; }
+    section[data-testid="stSidebar"], section[data-testid="stSidebar"] > div,
+    section[data-testid="stSidebar"] [data-testid="stSidebarContent"],
+    section[data-testid="stSidebar"] [data-testid="stSidebarContent"] > div,
+    section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
+        background-color: #0a0f1c !important;
+    }
     html, body, [class*="css"] { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
     h1, h2, h3, p, span, label, .stMarkdown, .stCaption { color: #e8edf5 !important; }
     .cartao {
@@ -49,6 +55,7 @@ exigir_login()
 #   True  -> usa o simulador (simulador.py) para testar a tela sem hardware
 #   False -> usa a conexão real com o Arduino
 MODO_SIMULACAO = False
+INTERVALOS_MEDIA_MINUTOS = [1, 5, 10]
 
 if MODO_SIMULACAO:
     from simulador import HandlerSimulado
@@ -66,6 +73,8 @@ GASES = {
 if "connected"            not in st.session_state: st.session_state.connected = False
 if "arduino_handler"      not in st.session_state: st.session_state.arduino_handler = None
 if "auto_refresh"         not in st.session_state: st.session_state.auto_refresh = True
+if "intervalo_media_minutos" not in st.session_state: st.session_state.intervalo_media_minutos = 1
+if "intervalo_media_minutos_anterior" not in st.session_state: st.session_state.intervalo_media_minutos_anterior = 1
 if "last_valve_states"    not in st.session_state: st.session_state.last_valve_states = {g: False for g in GASES}
 if "last_read_time"       not in st.session_state: st.session_state.last_read_time = None
 if "valve_stats"          not in st.session_state:
@@ -74,13 +83,10 @@ if "valve_stats"          not in st.session_state:
 # Histórico bruto: todas as leituras individuais (1 por segundo)
 if "historico_bruto"      not in st.session_state: st.session_state.historico_bruto = deque(maxlen=None)
 
-# Buffer temporário: acumula leituras do minuto atual para fazer a média
+# Buffer temporário: acumula leituras da janela atual para a pré-visualização
 if "buffer_minuto"        not in st.session_state: st.session_state.buffer_minuto = []
 
-# Histórico de médias: 1 ponto por minuto, usado no gráfico de concentração
-if "historico_medias"     not in st.session_state: st.session_state.historico_medias = deque(maxlen=None)
-
-# Marca o início do minuto atual de acumulação
+# Marca o início da janela atual de acumulação
 if "inicio_minuto_atual"  not in st.session_state: st.session_state.inicio_minuto_atual = None
 
 
@@ -91,8 +97,7 @@ def ler_dados_sensores():
     """Lê uma nova amostra do hardware (real ou simulado) a cada ~1s.
 
     Cada leitura é salva no histórico bruto (tempo real).
-    Ao completar 1 minuto de acumulação, calcula a média de O2 e H2
-    e registra um ponto no histórico de médias (usado no gráfico).
+    Ao completar a janela selecionada, reinicia a pré-visualização da janela.
     """
     agora = time.time()
     if st.session_state.last_read_time and (agora - st.session_state.last_read_time < 1):
@@ -109,57 +114,83 @@ def ler_dados_sensores():
     registro = handler.get_dataframe_format(dado_bruto)
 
     # Aplica equação de calibração (y = a*x + b) — ajustar em calculo_concentracao.py
-    registro["O2_Conc"] = calcular_concentracao_o2(registro["O2_Raw"])
     registro["H2_Conc"] = calcular_concentracao_h2(registro["H2_Raw"])
+    registro["O2_Conc"] = calcular_concentracao_o2(registro["H2_Conc"])
 
     # Salva leitura individual no histórico bruto (para download de tempo real)
     st.session_state.historico_bruto.append(registro)
     st.session_state.last_read_time = agora
 
-    # --- Acumulação para média de 1 minuto ---
+    intervalo_segundos = st.session_state.intervalo_media_minutos * 60
+
+    # --- Acumulação para pré-visualização da janela selecionada ---
     if st.session_state.inicio_minuto_atual is None:
-        # Primeiro registro: marca o início do minuto
+        # Primeiro registro: marca o início da janela
         st.session_state.inicio_minuto_atual = agora
 
     st.session_state.buffer_minuto.append(registro)
 
     segundos_no_minuto = agora - st.session_state.inicio_minuto_atual
-    if segundos_no_minuto >= 60:
+    if segundos_no_minuto >= intervalo_segundos:
         _fechar_minuto()
 
 
 def _fechar_minuto():
-    """Calcula a média das leituras acumuladas no último minuto e grava
-    um ponto no histórico de médias. Reinicia o buffer para o próximo minuto."""
-    buf = st.session_state.buffer_minuto
-    if not buf:
-        return
-
-    ts_medio = buf[len(buf) // 2]["Timestamp"]   # timestamp central do intervalo
-
-    media = {
-        "Timestamp":       ts_medio,
-        "O2_Conc_Media":   sum(r["O2_Conc"]       for r in buf) / len(buf),
-        "H2_Conc_Media":   sum(r["H2_Conc"]       for r in buf) / len(buf),
-        "Ambient_Temp":    sum(r["Ambient_Temp"]   for r in buf) / len(buf),
-        "Ambient_Hum":     sum(r["Ambient_Hum"]    for r in buf) / len(buf),
-        "Ambient_Pressure":sum(r["Ambient_Pressure"] for r in buf) / len(buf),
-        "N_Amostras":      len(buf),
-    }
-
-    st.session_state.historico_medias.append(media)
-
-    # Reinicia o buffer e o marcador de início
+    """Reinicia a pré-visualização da janela atual após ela completar."""
     st.session_state.buffer_minuto = []
     st.session_state.inicio_minuto_atual = None
 
 
 def segundos_ate_proximo_ponto():
-    """Calcula quantos segundos faltam para fechar o minuto atual (para exibir no UI)."""
+    """Calcula quantos segundos faltam para fechar a janela atual."""
+    intervalo_segundos = st.session_state.intervalo_media_minutos * 60
     if st.session_state.inicio_minuto_atual is None:
-        return 60
+        return intervalo_segundos
     decorrido = time.time() - st.session_state.inicio_minuto_atual
-    return max(0, int(60 - decorrido))
+    return max(0, int(intervalo_segundos - decorrido))
+
+
+def agregar_por_intervalo(df: pd.DataFrame, intervalo_minutos: int) -> pd.DataFrame:
+    """Agrupa leituras brutas em janelas completas de tempo."""
+    if df.empty:
+        return pd.DataFrame(columns=[
+            "Timestamp", "O2_Conc_Media", "H2_Conc_Media",
+            "Ambient_Temp", "Ambient_Hum", "Ambient_Pressure", "N_Amostras",
+        ])
+
+    df = df.sort_values("Timestamp").reset_index(drop=True).copy()
+    intervalo_segundos = intervalo_minutos * 60
+    inicio = df["Timestamp"].iloc[0]
+    ultimo_timestamp = df["Timestamp"].iloc[-1]
+
+    df["_bucket"] = ((df["Timestamp"] - inicio).dt.total_seconds() // intervalo_segundos).astype(int)
+    df["_bucket_inicio"] = inicio + pd.to_timedelta(df["_bucket"] * intervalo_segundos, unit="s")
+    df["_bucket_fim"] = df["_bucket_inicio"] + pd.to_timedelta(intervalo_segundos, unit="s")
+
+    df = df[df["_bucket_fim"] <= ultimo_timestamp]
+    if df.empty:
+        return pd.DataFrame(columns=[
+            "Timestamp", "O2_Conc_Media", "H2_Conc_Media",
+            "Ambient_Temp", "Ambient_Hum", "Ambient_Pressure", "N_Amostras",
+        ])
+
+    agrupado = (
+        df.groupby("_bucket", as_index=False)
+        .agg(
+            Timestamp=("_bucket_fim", "first"),
+            O2_Conc_Media=("O2_Conc", "mean"),
+            H2_Conc_Media=("H2_Conc", "mean"),
+            Ambient_Temp=("Ambient_Temp", "mean"),
+            Ambient_Hum=("Ambient_Hum", "mean"),
+            Ambient_Pressure=("Ambient_Pressure", "mean"),
+            N_Amostras=("Timestamp", "size"),
+        )
+        .drop(columns=["_bucket"], errors="ignore")
+        .sort_values("Timestamp")
+        .reset_index(drop=True)
+    )
+
+    return agrupado
 
 
 # BARRA LATERAL
@@ -167,6 +198,17 @@ with st.sidebar:
     st.markdown("### 🔌 Conectividade")
     if MODO_SIMULACAO:
         st.caption("🧪 Modo simulação ativo — dados gerados só para teste de interface")
+
+    st.session_state.intervalo_media_minutos = st.selectbox(
+        "Janela de média",
+        options=INTERVALOS_MEDIA_MINUTOS,
+        index=INTERVALOS_MEDIA_MINUTOS.index(st.session_state.intervalo_media_minutos),
+        format_func=lambda valor: f"{valor} minuto{'s' if valor > 1 else ''}",
+    )
+    if st.session_state.intervalo_media_minutos != st.session_state.intervalo_media_minutos_anterior:
+        st.session_state.buffer_minuto = []
+        st.session_state.inicio_minuto_atual = None
+        st.session_state.intervalo_media_minutos_anterior = st.session_state.intervalo_media_minutos
 
     if not st.session_state.connected:
         if MODO_SIMULACAO:
@@ -203,7 +245,6 @@ with st.sidebar:
             st.session_state.connected = False
             st.session_state.arduino_handler = None
             st.session_state.historico_bruto.clear()
-            st.session_state.historico_medias.clear()
             st.session_state.buffer_minuto = []
             st.session_state.inicio_minuto_atual = None
             st.rerun()
@@ -226,7 +267,7 @@ if st.session_state.connected:
 
     # DataFrames de trabalho
     df_bruto  = pd.DataFrame(list(st.session_state.historico_bruto))
-    df_medias = pd.DataFrame(list(st.session_state.historico_medias))
+    df_medias = agregar_por_intervalo(df_bruto, st.session_state.intervalo_media_minutos)
 
     st.title("⚗️ Monitor do Misturador de Gás")
 
@@ -236,7 +277,7 @@ if st.session_state.connected:
         faltam = segundos_ate_proximo_ponto()
         col_ts, col_prox = st.columns([3, 1])
         col_ts.caption(f"Última leitura: {df_bruto['Timestamp'].iloc[-1].strftime('%H:%M:%S')}  ·  "
-                       f"{amostras_no_buffer} amostras no minuto atual  ·  "
+                       f"{amostras_no_buffer} amostras na janela atual  ·  "
                        f"próximo ponto no gráfico em {faltam}s")
 
     # ── PAINEL DE VÁLVULAS ──────────────────────────────────────────
@@ -279,10 +320,10 @@ if st.session_state.connected:
         anterior = df_bruto.iloc[-2] if len(df_bruto) > 1 else ultima
 
         m_cols = st.columns(5)
-        m_cols[0].metric("O2 — Concentração",  f"{ultima['O2_Conc']:.1f} %",
-                         f"{ultima['O2_Conc'] - anterior['O2_Conc']:+.1f}")
-        m_cols[1].metric("H2 — Concentração",  f"{ultima['H2_Conc']:.1f} %",
-                         f"{ultima['H2_Conc'] - anterior['H2_Conc']:+.1f}")
+        m_cols[0].metric("O2 — Concentração",  f"{ultima['O2_Conc']:.0f} ppm",
+                 f"{ultima['O2_Conc'] - anterior['O2_Conc']:+.0f} ppm")
+        m_cols[1].metric("H2 — Concentração",  f"{ultima['H2_Conc']:.0f} ppm",
+                 f"{ultima['H2_Conc'] - anterior['H2_Conc']:+.0f} ppm")
         m_cols[2].metric("Temperatura",         f"{ultima['Ambient_Temp']:.1f} °C",
                          f"{ultima['Ambient_Temp'] - anterior['Ambient_Temp']:+.1f}")
         m_cols[3].metric("Umidade",             f"{ultima['Ambient_Hum']:.1f} %",
@@ -299,40 +340,40 @@ if st.session_state.connected:
                 # Enquanto o primeiro minuto não fecha, exibe aviso com contagem regressiva
                 faltam = segundos_ate_proximo_ponto()
                 st.info(
-                    f"O gráfico de concentração exibe a **média de cada minuto**. "
-                    f"Aguardando o fim do primeiro minuto de coleta — **{faltam}s restantes**."
+                    f"O gráfico de concentração exibe a **média de cada janela**. "
+                    f"Aguardando o fim da primeira janela selecionada — **{faltam}s restantes**."
                 )
-                # Pré-visualização das leituras brutas do minuto atual (sem escalar o histórico)
+                # Pré-visualização das leituras brutas da janela atual
                 if st.session_state.buffer_minuto:
                     df_buf = pd.DataFrame(st.session_state.buffer_minuto)
-                    st.caption(f"Pré-visualização — {len(df_buf)} leituras brutas do minuto atual:")
+                    st.caption(f"Pré-visualização — {len(df_buf)} leituras brutas da janela atual:")
                     fig_pre = go.Figure()
                     fig_pre.add_trace(go.Scatter(x=df_buf["Timestamp"], y=df_buf["O2_Conc"],
-                                                 name="O2 (%)", line=dict(color=GASES["O2"]["cor"], width=2, dash="dot")))
+                                                 name="O2 (ppm)", line=dict(color=GASES["O2"]["cor"], width=2, dash="dot")))
                     fig_pre.add_trace(go.Scatter(x=df_buf["Timestamp"], y=df_buf["H2_Conc"],
-                                                 name="H2 (%)", line=dict(color=GASES["H2"]["cor"], width=2, dash="dot")))
+                                                 name="H2 (ppm)", line=dict(color=GASES["H2"]["cor"], width=2, dash="dot")))
                     fig_pre.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
-                                          plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (%)",
+                                          plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)",
                                           height=300)
                     st.plotly_chart(fig_pre, width="stretch")
             else:
-                # Gráfico principal: 1 ponto por minuto (média)
+                # Gráfico principal: 1 ponto por janela completa
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(
                     x=df_medias["Timestamp"], y=df_medias["O2_Conc_Media"],
-                    name="O2 — média/min (%)", mode="lines+markers",
+                    name=f"O2 — média/{st.session_state.intervalo_media_minutos} min (ppm)", mode="lines+markers",
                     line=dict(color=GASES["O2"]["cor"], width=3),
                     marker=dict(size=7),
                 ))
                 fig.add_trace(go.Scatter(
                     x=df_medias["Timestamp"], y=df_medias["H2_Conc_Media"],
-                    name="H2 — média/min (%)", mode="lines+markers",
+                    name=f"H2 — média/{st.session_state.intervalo_media_minutos} min (ppm)", mode="lines+markers",
                     line=dict(color=GASES["H2"]["cor"], width=3),
                     marker=dict(size=7),
                 ))
                 fig.update_layout(
                     template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
-                    plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (%)",
+                    plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)",
                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                 )
                 st.plotly_chart(fig, width="stretch")
@@ -340,7 +381,24 @@ if st.session_state.connected:
                 # Pré-visualização pontilhada do minuto em andamento
                 if st.session_state.buffer_minuto:
                     df_buf = pd.DataFrame(st.session_state.buffer_minuto)
-                    st.caption(f"🔄 Acumulando minuto atual — {len(df_buf)} amostras / {segundos_ate_proximo_ponto()}s para o próximo ponto")
+                    st.caption(f"🔄 Acumulando janela atual — {len(df_buf)} amostras / {segundos_ate_proximo_ponto()}s para o próximo ponto")
+                    fig_preview = go.Figure()
+                    fig_preview.add_trace(go.Scatter(
+                        x=df_buf["Timestamp"], y=df_buf["O2_Conc"],
+                        name="O2 em andamento", mode="lines",
+                        line=dict(color=GASES["O2"]["cor"], width=2, dash="dot"),
+                    ))
+                    fig_preview.add_trace(go.Scatter(
+                        x=df_buf["Timestamp"], y=df_buf["H2_Conc"],
+                        name="H2 em andamento", mode="lines",
+                        line=dict(color=GASES["H2"]["cor"], width=2, dash="dot"),
+                    ))
+                    fig_preview.update_layout(
+                        template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
+                        plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)",
+                        height=260,
+                    )
+                    st.plotly_chart(fig_preview, width="stretch")
 
         # ── ABA: CONDIÇÕES AMBIENTAIS (leituras brutas, taxa real) ──
         with tab_amb:
@@ -362,7 +420,7 @@ if st.session_state.connected:
 
         # ── ABA: HISTÓRICO E DOWNLOADS ───────────────────────────────
         with tab_hist:
-            sub_rt, sub_med = st.tabs(["⏱️ Tempo Real (1s)", "📉 Médias por Minuto"])
+            sub_rt, sub_med = st.tabs(["⏱️ Tempo Real (1s)", "📉 Médias por Janela"])
 
             # Sub-aba: histórico bruto (uma linha por segundo)
             with sub_rt:
@@ -370,7 +428,7 @@ if st.session_state.connected:
                 colunas_rt = ["Timestamp", "O2_Conc", "H2_Conc",
                               "Ambient_Temp", "Ambient_Hum", "Ambient_Pressure"]
                 df_rt_exib = df_bruto[colunas_rt].sort_values("Timestamp", ascending=False)
-                df_rt_exib.columns = ["Timestamp", "O2 (%)", "H2 (%)", "Temp (°C)", "Umidade (%)", "Pressão (kPa)"]
+                df_rt_exib.columns = ["Timestamp", "O2 (ppm)", "H2 (ppm)", "Temp (°C)", "Umidade (%)", "Pressão (kPa)"]
                 st.dataframe(df_rt_exib, width="stretch")
                 st.download_button(
                     "⬇️ Baixar leituras em tempo real (CSV)",
@@ -383,19 +441,23 @@ if st.session_state.connected:
             # Sub-aba: histórico de médias (uma linha por minuto)
             with sub_med:
                 if df_medias.empty:
-                    st.info("Ainda sem médias calculadas. Aguarde o primeiro minuto completo de coleta.")
+                    st.info(
+                        f"Ainda sem médias calculadas. Aguarde o primeiro intervalo completo de {st.session_state.intervalo_media_minutos} minuto(s)."
+                    )
                 else:
-                    st.caption("Uma linha por minuto completo, com a média das leituras do intervalo.")
+                    st.caption(
+                        f"Uma linha por janela completa de {st.session_state.intervalo_media_minutos} minuto(s), com a média das leituras do intervalo."
+                    )
                     colunas_med = ["Timestamp", "O2_Conc_Media", "H2_Conc_Media",
                                    "Ambient_Temp", "Ambient_Hum", "Ambient_Pressure", "N_Amostras"]
                     df_med_exib = df_medias[colunas_med].sort_values("Timestamp", ascending=False)
-                    df_med_exib.columns = ["Timestamp", "O2 média (%)", "H2 média (%)",
+                    df_med_exib.columns = ["Timestamp", "O2 média (ppm)", "H2 média (ppm)",
                                            "Temp (°C)", "Umidade (%)", "Pressão (kPa)", "Nº amostras"]
                     st.dataframe(df_med_exib, width="stretch")
                     st.download_button(
-                        "⬇️ Baixar médias por minuto (CSV)",
+                        "⬇️ Baixar médias por janela (CSV)",
                         data=df_med_exib.to_csv(index=False).encode("utf-8"),
-                        file_name=f"medias_por_minuto_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                        file_name=f"medias_por_janela_{st.session_state.intervalo_media_minutos}min_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
                         mime="text/csv",
                         width="stretch",
                     )
