@@ -289,6 +289,8 @@ if st.session_state.connected:
     # DataFrames de trabalho
     df_bruto  = pd.DataFrame(list(st.session_state.historico_bruto))
     df_medias = agregar_por_intervalo(df_bruto, st.session_state.intervalo_media_minutos)
+    df_bruto_grafico = df_bruto.tail(100)
+    df_medias_grafico = df_medias.tail(100)
 
     st.title("⚗️ Monitor do Misturador de Gás")
 
@@ -333,7 +335,7 @@ if st.session_state.connected:
                 )
                 # Pré-visualização das leituras brutas da janela atual
                 if st.session_state.buffer_minuto:
-                    df_buf = pd.DataFrame(st.session_state.buffer_minuto)
+                    df_buf = pd.DataFrame(st.session_state.buffer_minuto).tail(100)
                     st.caption(f"Pré-visualização — {len(df_buf)} leituras brutas da janela atual:")
                     fig_pre_o2 = go.Figure()
                     fig_pre_o2.add_trace(go.Scatter(
@@ -362,7 +364,7 @@ if st.session_state.connected:
                 # Gráficos principais: um para cada gás
                 fig_o2 = go.Figure()
                 fig_o2.add_trace(go.Scatter(
-                    x=df_medias["Timestamp"], y=df_medias["O2_Conc_Media"],
+                    x=df_medias_grafico["Timestamp"], y=df_medias_grafico["O2_Conc_Media"],
                     name=f"O2 — média/{st.session_state.intervalo_media_minutos} min (ppm)",
                     mode="lines+markers", line=dict(color=GASES["O2"]["cor"], width=3), marker=dict(size=7),
                 ))
@@ -377,7 +379,7 @@ if st.session_state.connected:
 
                 fig_h2 = go.Figure()
                 fig_h2.add_trace(go.Scatter(
-                    x=df_medias["Timestamp"], y=df_medias["H2_Conc_Media"],
+                    x=df_medias_grafico["Timestamp"], y=df_medias_grafico["H2_Conc_Media"],
                     name=f"H2 — média/{st.session_state.intervalo_media_minutos} min (ppm)",
                     mode="lines+markers", line=dict(color=GASES["H2"]["cor"], width=3), marker=dict(size=7),
                 ))
@@ -392,7 +394,7 @@ if st.session_state.connected:
 
                 # Pré-visualização pontilhada do minuto em andamento
                 if st.session_state.buffer_minuto:
-                    df_buf = pd.DataFrame(st.session_state.buffer_minuto)
+                    df_buf = pd.DataFrame(st.session_state.buffer_minuto).tail(100)
                     st.caption(f"🔄 Acumulando janela atual — {len(df_buf)} amostras / {segundos_ate_proximo_ponto()}s para o próximo ponto")
                     fig_preview_o2 = go.Figure()
                     fig_preview_o2.add_trace(go.Scatter(
@@ -425,9 +427,9 @@ if st.session_state.connected:
             col_a, col_b = st.columns(2)
             with col_a:
                 fig_ta = make_subplots(specs=[[{"secondary_y": True}]])
-                fig_ta.add_trace(go.Scatter(x=df_bruto["Timestamp"], y=df_bruto["Ambient_Temp"],
+                fig_ta.add_trace(go.Scatter(x=df_bruto_grafico["Timestamp"], y=df_bruto_grafico["Ambient_Temp"],
                                             name="Temp (°C)", line=dict(color="#f87171")))
-                fig_ta.add_trace(go.Scatter(x=df_bruto["Timestamp"], y=df_bruto["Ambient_Hum"],
+                fig_ta.add_trace(go.Scatter(x=df_bruto_grafico["Timestamp"], y=df_bruto_grafico["Ambient_Hum"],
                                             name="Umidade (%)", line=dict(color="#60a5fa")), secondary_y=True)
                 fig_ta.update_layout(
                     **formatar_titulo_grafico("Temperatura e Umidade"),
@@ -435,7 +437,7 @@ if st.session_state.connected:
                 )
                 st.plotly_chart(fig_ta, width="stretch")
             with col_b:
-                fig_p = go.Figure(go.Scatter(x=df_bruto["Timestamp"], y=df_bruto["Ambient_Pressure"],
+                fig_p = go.Figure(go.Scatter(x=df_bruto_grafico["Timestamp"], y=df_bruto_grafico["Ambient_Pressure"],
                                              name="Pressão (bar)", line=dict(color="#c084fc", width=3)))
                 fig_p.update_layout(
                     **formatar_titulo_grafico("Pressão Atmosférica"),
