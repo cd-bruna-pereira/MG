@@ -233,7 +233,7 @@ with st.sidebar:
 
     if not st.session_state.connected:
         if MODO_SIMULACAO:
-            if st.button("🚀 Conectar (simulado)", width="stretch", type="primary"):
+            if st.button("🚀 Conectar (simulado)", use_container_width=True, type="primary"):
                 st.session_state.arduino_handler = HandlerSimulado()
                 st.session_state.connected = True
                 st.rerun()
@@ -244,20 +244,27 @@ with st.sidebar:
                 porta_serial = porta_detectada
                 st.info(f"Porta detectada automaticamente: {porta_serial}")
             else:
-                porta_serial = st.text_input("Porta Serial", value="/dev/ttyACM0")
+                porta_serial = st.text_input(
+                    "Porta Serial",
+                    value="",
+                    placeholder="/dev/cu.usbmodem... ou /dev/cu.usbserial...",
+                )
                 st.caption("Nenhuma porta detectada automaticamente. Informe a porta manualmente.")
             baud_rate = st.selectbox("Baud Rate", options=[9600, 115200])
-            if st.button("🚀 Conectar Hardware", width="stretch", type="primary"):
-                arduino_conn = ArduinoConnection(port=porta_serial, baud_rate=baud_rate)
-                if arduino_conn.connect():
+            if st.button("🚀 Conectar Hardware", use_container_width=True, type="primary"):
+                if not porta_serial.strip():
+                    st.warning("Informe a porta serial do Arduino para conectar.")
+                else:
+                    arduino_conn = ArduinoConnection(port=porta_serial.strip(), baud_rate=baud_rate)
+                if porta_serial.strip() and arduino_conn.connect():
                     st.session_state.arduino_handler = ArduinoHandler(arduino_conn)
                     st.session_state.connected = True
                     st.rerun()
-                else:
+                elif porta_serial.strip():
                     st.error(f"Não foi possível conectar na porta {porta_serial}. Verifique a porta e o baud rate.")
     else:
         st.success("Conectado")
-        if st.button("✖ Desligar Sistema", width="stretch"):
+        if st.button("✖ Desligar Sistema", use_container_width=True):
             if st.session_state.arduino_handler:
                 if hasattr(st.session_state.arduino_handler, "disconnect"):
                     st.session_state.arduino_handler.disconnect()
@@ -275,7 +282,7 @@ with st.sidebar:
     st.caption("Leitura serial a cada ~1s")
 
     st.divider()
-    if st.button("🔒 Sair", width="stretch"):
+    if st.button("🔒 Sair", use_container_width=True):
         st.session_state.autenticado = False
         st.rerun()
 
@@ -347,7 +354,7 @@ if st.session_state.connected:
                         template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
                         plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)", height=280,
                     )
-                    st.plotly_chart(fig_pre_o2, width="stretch")
+                    st.plotly_chart(fig_pre_o2, use_container_width=True)
 
                     fig_pre_h2 = go.Figure()
                     fig_pre_h2.add_trace(go.Scatter(
@@ -359,7 +366,7 @@ if st.session_state.connected:
                         template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
                         plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)", height=280,
                     )
-                    st.plotly_chart(fig_pre_h2, width="stretch")
+                    st.plotly_chart(fig_pre_h2, use_container_width=True)
             else:
                 # Gráficos principais: um para cada gás
                 fig_o2 = go.Figure()
@@ -375,7 +382,7 @@ if st.session_state.connected:
                     template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
                     plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)",
                 )
-                st.plotly_chart(fig_o2, width="stretch")
+                st.plotly_chart(fig_o2, use_container_width=True)
 
                 fig_h2 = go.Figure()
                 fig_h2.add_trace(go.Scatter(
@@ -390,7 +397,7 @@ if st.session_state.connected:
                     template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
                     plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)",
                 )
-                st.plotly_chart(fig_h2, width="stretch")
+                st.plotly_chart(fig_h2, use_container_width=True)
 
                 # Pré-visualização pontilhada do minuto em andamento
                 if st.session_state.buffer_minuto:
@@ -407,7 +414,7 @@ if st.session_state.connected:
                         template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
                         plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)", height=260,
                     )
-                    st.plotly_chart(fig_preview_o2, width="stretch")
+                    st.plotly_chart(fig_preview_o2, use_container_width=True)
 
                     fig_preview_h2 = go.Figure()
                     fig_preview_h2.add_trace(go.Scatter(
@@ -420,7 +427,7 @@ if st.session_state.connected:
                         template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
                         plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)", height=260,
                     )
-                    st.plotly_chart(fig_preview_h2, width="stretch")
+                    st.plotly_chart(fig_preview_h2, use_container_width=True)
 
         # ── ABA: CONDIÇÕES AMBIENTAIS (leituras brutas, taxa real) ──
         with tab_amb:
@@ -435,7 +442,7 @@ if st.session_state.connected:
                     **formatar_titulo_grafico("Temperatura e Umidade"),
                     template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
                 )
-                st.plotly_chart(fig_ta, width="stretch")
+                st.plotly_chart(fig_ta, use_container_width=True)
             with col_b:
                 fig_p = go.Figure(go.Scatter(x=df_bruto_grafico["Timestamp"], y=df_bruto_grafico["Ambient_Pressure"],
                                              name="Pressão (bar)", line=dict(color="#c084fc", width=3)))
@@ -444,7 +451,7 @@ if st.session_state.connected:
                     template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
                     plot_bgcolor="rgba(0,0,0,0)", yaxis_title="bar"
                 )
-                st.plotly_chart(fig_p, width="stretch")
+                st.plotly_chart(fig_p, use_container_width=True)
 
         # ── ABA: HISTÓRICO E DOWNLOADS ───────────────────────────────
         with tab_hist:
@@ -457,13 +464,13 @@ if st.session_state.connected:
                               "Ambient_Temp", "Ambient_Hum", "Ambient_Pressure"]
                 df_rt_exib = df_bruto[colunas_rt].sort_values("Timestamp", ascending=False)
                 df_rt_exib.columns = ["Timestamp", "O2 (ppm)", "H2 (ppm)", "Temp (°C)", "Umidade (%)", "Pressão (bar)"]
-                st.dataframe(df_rt_exib, width="stretch")
+                st.dataframe(df_rt_exib, use_container_width=True)
                 st.download_button(
                     "⬇️ Baixar leituras em tempo real (CSV)",
                     data=df_rt_exib.to_csv(index=False).encode("utf-8"),
                     file_name=f"tempo_real_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
                     mime="text/csv",
-                    width="stretch",
+                    use_container_width=True,
                 )
 
             # Sub-aba: histórico de médias (uma linha por minuto)
@@ -481,13 +488,13 @@ if st.session_state.connected:
                     df_med_exib = df_medias[colunas_med].sort_values("Timestamp", ascending=False)
                     df_med_exib.columns = ["Timestamp", "O2 média (ppm)", "H2 média (ppm)",
                                            "Temp (°C)", "Umidade (%)", "Pressão (bar)", "Nº amostras"]
-                    st.dataframe(df_med_exib, width="stretch")
+                    st.dataframe(df_med_exib, use_container_width=True)
                     st.download_button(
                         "⬇️ Baixar médias por janela (CSV)",
                         data=df_med_exib.to_csv(index=False).encode("utf-8"),
                         file_name=f"medias_por_janela_{st.session_state.intervalo_media_minutos}min_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
                         mime="text/csv",
-                        width="stretch",
+                        use_container_width=True,
                     )
     else:
         st.info("Aguardando a primeira leitura dos sensores...")

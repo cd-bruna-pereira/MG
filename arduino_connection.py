@@ -3,7 +3,7 @@
 import serial
 import serial.tools.list_ports
 import time
-from typing import Optional, List
+from typing import List, Optional, Tuple
 
 
 class ArduinoConnection:
@@ -31,7 +31,7 @@ class ArduinoConnection:
         if len(ports) == 1:
             return ports[0].device
 
-        def score(port_info) -> tuple[int, int, str]:
+        def score(port_info) -> Tuple[int, int, str]:
             text = " ".join(
                 str(value).lower()
                 for value in (
