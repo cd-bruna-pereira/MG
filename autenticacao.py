@@ -40,7 +40,7 @@ def exigir_login():
 
         with st.form("form_login"):
             senha = st.text_input("Senha de acesso", type="password")
-            entrar = st.form_submit_button("Entrar", width="stretch", type="primary")
+            entrar = st.form_submit_button("Entrar", use_container_width=True, type="primary")
 
         if entrar:
             if _senha_valida(senha):
