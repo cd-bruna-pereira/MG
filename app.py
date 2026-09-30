@@ -1,6 +1,7 @@
 import time
 from collections import deque
 from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -16,48 +17,48 @@ st.set_page_config(page_title="Monitor do Misturador de Gás", page_icon="⚗️
 # --- ESTILO GLOBAL ---
 st.markdown("""
 <style>
-    .stApp { background-color: #0a0f1c !important; }
+    .stApp { background-color: #f7f9fc !important; }
     header[data-testid="stHeader"], div[data-testid="stHeader"],
     div[data-testid="stToolbar"] {
-        background-color: #0a0f1c !important;
+        background-color: #f7f9fc !important;
     }
     section[data-testid="stSidebar"], section[data-testid="stSidebar"] > div,
     section[data-testid="stSidebar"] [data-testid="stSidebarContent"],
     section[data-testid="stSidebar"] [data-testid="stSidebarContent"] > div,
     section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
-        background-color: #0a0f1c !important;
+        background-color: #eef2f7 !important;
     }
     html, body, [class*="css"] { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
-    h1, h2, h3, p, span, label, .stMarkdown, .stCaption { color: #e8edf5 !important; }
+    h1, h2, h3, p, span, label, .stMarkdown, .stCaption { color: #1f2937 !important; }
     .cartao {
-        background-color: #131b2e; border: 1px solid #243047;
+        background-color: #ffffff; border: 1px solid #dbe3ee;
         border-radius: 14px; padding: 1.1rem 1.3rem; margin-bottom: 0.8rem;
     }
     .cartao-login {
-        background-color: #131b2e; border: 1px solid #243047;
+        background-color: #ffffff; border: 1px solid #dbe3ee;
         border-radius: 16px; padding: 2rem 2rem 1.2rem 2rem; margin-top: 8vh;
     }
     div[data-testid="stMetric"] {
-        background-color: #131b2e; border: 1px solid #243047;
+        background-color: #ffffff; border: 1px solid #dbe3ee;
         border-radius: 14px; padding: 0.9rem 1.1rem;
     }
-    div[data-testid="stMetricLabel"] { color: #8b97ad !important; }
+    div[data-testid="stMetricLabel"] { color: #64748b !important; }
     .stButton>button {
-        background-color: #1c2740 !important; color: #e8edf5 !important;
-        border: 1px solid #2e3c59 !important; border-radius: 10px !important;
+        background-color: #2563eb !important; color: #ffffff !important;
+        border: 1px solid #1d4ed8 !important; border-radius: 10px !important;
     }
     .stPlotlyChart {
         border-radius: 14px;
     }
     div[data-testid="stDownloadButton"] button,
     div[data-testid="stDownloadButton"] > button {
-        background-color: #1c2740 !important; color: #e8edf5 !important;
-        border: 1px solid #2e3c59 !important; border-radius: 10px !important;
+        background-color: #2563eb !important; color: #ffffff !important;
+        border: 1px solid #1d4ed8 !important; border-radius: 10px !important;
     }
     div[data-baseweb="select"]>div, input {
-        background-color: #0a0f1c !important; color: #e8edf5 !important; border: 1px solid #243047 !important;
+        background-color: #ffffff !important; color: #1f2937 !important; border: 1px solid #cbd5e1 !important;
     }
-    .texto-mono { font-family: 'Cascadia Code', 'Courier New', monospace; font-size: 12px; color: #8b97ad; }
+    .texto-mono { font-family: 'Cascadia Code', 'Courier New', monospace; font-size: 12px; color: #64748b; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -68,6 +69,15 @@ exigir_login()
 #   False -> usa a conexão real com o Arduino
 MODO_SIMULACAO = False
 INTERVALOS_MEDIA_MINUTOS = [1, 5, 10]
+DATA_DIR = Path(__file__).resolve().parent / "Data"
+COLUNAS_CSV = [
+    "Timestamp", "O2_Raw", "H2_Raw", "O2_Conc", "H2_Conc",
+    "Ambient_Temp", "Ambient_Hum", "Ambient_Pressure",
+]
+COLUNAS_MEDIA_CSV = [
+    "Timestamp", "O2_Conc_Media", "H2_Conc_Media",
+    "Ambient_Temp", "Ambient_Hum", "Ambient_Pressure", "N_Amostras",
+]
 
 if MODO_SIMULACAO:
     from simulador import HandlerSimulado
@@ -89,8 +99,31 @@ if "intervalo_media_minutos" not in st.session_state: st.session_state.intervalo
 if "intervalo_media_minutos_anterior" not in st.session_state: st.session_state.intervalo_media_minutos_anterior = 1
 if "last_read_time"       not in st.session_state: st.session_state.last_read_time = None
 
-# Histórico bruto: todas as leituras individuais (1 por segundo)
-if "historico_bruto"      not in st.session_state: st.session_state.historico_bruto = deque(maxlen=None)
+# Histórico bruto: somente a janela necessária para a tela (o histórico completo fica no CSV)
+if "historico_bruto" not in st.session_state:
+    st.session_state.historico_bruto = deque(maxlen=100)
+else:
+    st.session_state.historico_bruto = deque(st.session_state.historico_bruto, maxlen=100)
+
+# Arquivos da sessão: criados após a primeira leitura, quando a minutagem escolhida já está definida.
+if "arquivo_bruto_csv" not in st.session_state:
+    st.session_state.arquivo_bruto_csv = None
+    st.session_state.arquivo_media_csv = None
+
+
+def _inicializar_arquivos_csv():
+    """Cria os arquivos da sessão usando a janela selecionada no início da coleta."""
+    if st.session_state.arquivo_bruto_csv is not None:
+        return
+
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    inicio_coleta = datetime.now()
+    sufixo_nome = inicio_coleta.strftime("%d_%m_%Y_%H%M%S")
+    intervalo = st.session_state.intervalo_media_minutos
+    st.session_state.arquivo_bruto_csv = DATA_DIR / f"Bruto_{sufixo_nome}.csv"
+    st.session_state.arquivo_media_csv = DATA_DIR / f"Media{intervalo}_{sufixo_nome}.csv"
+    pd.DataFrame(columns=COLUNAS_CSV).to_csv(st.session_state.arquivo_bruto_csv, index=False)
+    pd.DataFrame(columns=COLUNAS_MEDIA_CSV).to_csv(st.session_state.arquivo_media_csv, index=False)
 
 # Buffer temporário: acumula leituras da janela atual para a pré-visualização
 if "buffer_minuto"        not in st.session_state: st.session_state.buffer_minuto = []
@@ -126,8 +159,15 @@ def ler_dados_sensores():
     registro["H2_Conc"] = calcular_concentracao_h2(registro["H2_Raw"])
     registro["O2_Conc"] = calcular_concentracao_o2(registro["H2_Conc"])
 
-    # Salva leitura individual no histórico bruto (para download de tempo real)
+    _inicializar_arquivos_csv()
+    # Mantém somente a janela exibida na tela; o histórico completo vai direto para o disco.
     st.session_state.historico_bruto.append(registro)
+    pd.DataFrame([registro], columns=COLUNAS_CSV).to_csv(
+        st.session_state.arquivo_bruto_csv,
+        mode="a",
+        header=False,
+        index=False,
+    )
     st.session_state.last_read_time = agora
 
     intervalo_segundos = st.session_state.intervalo_media_minutos * 60
@@ -145,7 +185,24 @@ def ler_dados_sensores():
 
 
 def _fechar_minuto():
-    """Reinicia a pré-visualização da janela atual após ela completar."""
+    """Grava a média da janela no disco e reinicia a pré-visualização."""
+    df_janela = pd.DataFrame(st.session_state.buffer_minuto)
+    if not df_janela.empty:
+        registro_medio = {
+            "Timestamp": df_janela["Timestamp"].iloc[-1],
+            "O2_Conc_Media": df_janela["O2_Conc"].mean(),
+            "H2_Conc_Media": df_janela["H2_Conc"].mean(),
+            "Ambient_Temp": df_janela["Ambient_Temp"].mean(),
+            "Ambient_Hum": df_janela["Ambient_Hum"].mean(),
+            "Ambient_Pressure": df_janela["Ambient_Pressure"].mean(),
+            "N_Amostras": len(df_janela),
+        }
+        pd.DataFrame([registro_medio], columns=COLUNAS_MEDIA_CSV).to_csv(
+            st.session_state.arquivo_media_csv,
+            mode="a",
+            header=False,
+            index=False,
+        )
     st.session_state.buffer_minuto = []
     st.session_state.inicio_minuto_atual = None
 
@@ -275,6 +332,8 @@ with st.sidebar:
             st.session_state.historico_bruto.clear()
             st.session_state.buffer_minuto = []
             st.session_state.inicio_minuto_atual = None
+            st.session_state.arquivo_bruto_csv = None
+            st.session_state.arquivo_media_csv = None
             st.rerun()
 
     st.divider()
@@ -295,7 +354,13 @@ if st.session_state.connected:
 
     # DataFrames de trabalho
     df_bruto  = pd.DataFrame(list(st.session_state.historico_bruto))
-    df_medias = agregar_por_intervalo(df_bruto, st.session_state.intervalo_media_minutos)
+    if st.session_state.arquivo_media_csv is not None:
+        df_medias = pd.read_csv(
+            st.session_state.arquivo_media_csv,
+            parse_dates=["Timestamp"],
+        )
+    else:
+        df_medias = pd.DataFrame(columns=COLUNAS_MEDIA_CSV)
     df_bruto_grafico = df_bruto.tail(100)
     df_medias_grafico = df_medias.tail(100)
 
@@ -351,7 +416,7 @@ if st.session_state.connected:
                     ))
                     fig_pre_o2.update_layout(
                         **formatar_titulo_grafico("Concentração de O2"),
-                        template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
+                        template="plotly_white", paper_bgcolor="rgba(0,0,0,0)",
                         plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)", height=280,
                     )
                     st.plotly_chart(fig_pre_o2, use_container_width=True)
@@ -363,7 +428,7 @@ if st.session_state.connected:
                     ))
                     fig_pre_h2.update_layout(
                         **formatar_titulo_grafico("Concentração de H2"),
-                        template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
+                        template="plotly_white", paper_bgcolor="rgba(0,0,0,0)",
                         plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)", height=280,
                     )
                     st.plotly_chart(fig_pre_h2, use_container_width=True)
@@ -379,7 +444,7 @@ if st.session_state.connected:
                     **formatar_titulo_grafico(
                         f"Concentração de O2 - média de {st.session_state.intervalo_media_minutos} minuto(s)"
                     ),
-                    template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
+                    template="plotly_white", paper_bgcolor="rgba(0,0,0,0)",
                     plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)",
                 )
                 st.plotly_chart(fig_o2, use_container_width=True)
@@ -394,7 +459,7 @@ if st.session_state.connected:
                     **formatar_titulo_grafico(
                         f"Concentração de H2 - média de {st.session_state.intervalo_media_minutos} minuto(s)"
                     ),
-                    template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
+                    template="plotly_white", paper_bgcolor="rgba(0,0,0,0)",
                     plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)",
                 )
                 st.plotly_chart(fig_h2, use_container_width=True)
@@ -411,7 +476,7 @@ if st.session_state.connected:
                     ))
                     fig_preview_o2.update_layout(
                         **formatar_titulo_grafico("Concentração de O2 em andamento"),
-                        template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
+                        template="plotly_white", paper_bgcolor="rgba(0,0,0,0)",
                         plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)", height=260,
                     )
                     st.plotly_chart(fig_preview_o2, use_container_width=True)
@@ -424,7 +489,7 @@ if st.session_state.connected:
                     ))
                     fig_preview_h2.update_layout(
                         **formatar_titulo_grafico("Concentração de H2 em andamento"),
-                        template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
+                        template="plotly_white", paper_bgcolor="rgba(0,0,0,0)",
                         plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)", height=260,
                     )
                     st.plotly_chart(fig_preview_h2, use_container_width=True)
@@ -440,7 +505,7 @@ if st.session_state.connected:
                                             name="Umidade (%)", line=dict(color="#60a5fa")), secondary_y=True)
                 fig_ta.update_layout(
                     **formatar_titulo_grafico("Temperatura e Umidade"),
-                    template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
+                    template="plotly_white", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
                 )
                 st.plotly_chart(fig_ta, use_container_width=True)
             with col_b:
@@ -448,7 +513,7 @@ if st.session_state.connected:
                                              name="Pressão (bar)", line=dict(color="#c084fc", width=3)))
                 fig_p.update_layout(
                     **formatar_titulo_grafico("Pressão Atmosférica"),
-                    template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
+                    template="plotly_white", paper_bgcolor="rgba(0,0,0,0)",
                     plot_bgcolor="rgba(0,0,0,0)", yaxis_title="bar"
                 )
                 st.plotly_chart(fig_p, use_container_width=True)
@@ -465,13 +530,14 @@ if st.session_state.connected:
                 df_rt_exib = df_bruto[colunas_rt].sort_values("Timestamp", ascending=False)
                 df_rt_exib.columns = ["Timestamp", "O2 (ppm)", "H2 (ppm)", "Temp (°C)", "Umidade (%)", "Pressão (bar)"]
                 st.dataframe(df_rt_exib, use_container_width=True)
-                st.download_button(
-                    "⬇️ Baixar leituras em tempo real (CSV)",
-                    data=df_rt_exib.to_csv(index=False).encode("utf-8"),
-                    file_name=f"tempo_real_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                    mime="text/csv",
-                    use_container_width=True,
-                )
+                with st.session_state.arquivo_bruto_csv.open("rb") as arquivo_csv:
+                    st.download_button(
+                        "⬇️ Baixar leituras em tempo real (CSV)",
+                        data=arquivo_csv,
+                        file_name=st.session_state.arquivo_bruto_csv.name,
+                        mime="text/csv",
+                        use_container_width=True,
+                    )
 
             # Sub-aba: histórico de médias (uma linha por minuto)
             with sub_med:
@@ -489,13 +555,14 @@ if st.session_state.connected:
                     df_med_exib.columns = ["Timestamp", "O2 média (ppm)", "H2 média (ppm)",
                                            "Temp (°C)", "Umidade (%)", "Pressão (bar)", "Nº amostras"]
                     st.dataframe(df_med_exib, use_container_width=True)
-                    st.download_button(
-                        "⬇️ Baixar médias por janela (CSV)",
-                        data=df_med_exib.to_csv(index=False).encode("utf-8"),
-                        file_name=f"medias_por_janela_{st.session_state.intervalo_media_minutos}min_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                        mime="text/csv",
-                        use_container_width=True,
-                    )
+                    with st.session_state.arquivo_media_csv.open("rb") as arquivo_media_csv:
+                        st.download_button(
+                            "⬇️ Baixar médias por janela (CSV)",
+                            data=arquivo_media_csv,
+                            file_name=st.session_state.arquivo_media_csv.name,
+                            mime="text/csv",
+                            use_container_width=True,
+                        )
     else:
         st.info("Aguardando a primeira leitura dos sensores...")
 
