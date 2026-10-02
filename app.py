@@ -14,54 +14,6 @@ from calculo_concentracao import calcular_concentracao_h2, calcular_concentracao
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Monitor do Misturador de Gás", page_icon="⚗️", layout="wide")
 
-# --- ESTILO GLOBAL ---
-st.markdown("""
-<style>
-    .stApp { background-color: #f7f9fc !important; }
-    header[data-testid="stHeader"], div[data-testid="stHeader"],
-    div[data-testid="stToolbar"] {
-        background-color: #f7f9fc !important;
-    }
-    section[data-testid="stSidebar"], section[data-testid="stSidebar"] > div,
-    section[data-testid="stSidebar"] [data-testid="stSidebarContent"],
-    section[data-testid="stSidebar"] [data-testid="stSidebarContent"] > div,
-    section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
-        background-color: #eef2f7 !important;
-    }
-    html, body, [class*="css"] { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
-    h1, h2, h3, p, span, label, .stMarkdown, .stCaption { color: #1f2937 !important; }
-    .cartao {
-        background-color: #ffffff; border: 1px solid #dbe3ee;
-        border-radius: 14px; padding: 1.1rem 1.3rem; margin-bottom: 0.8rem;
-    }
-    .cartao-login {
-        background-color: #ffffff; border: 1px solid #dbe3ee;
-        border-radius: 16px; padding: 2rem 2rem 1.2rem 2rem; margin-top: 8vh;
-    }
-    div[data-testid="stMetric"] {
-        background-color: #ffffff; border: 1px solid #dbe3ee;
-        border-radius: 14px; padding: 0.9rem 1.1rem;
-    }
-    div[data-testid="stMetricLabel"] { color: #64748b !important; }
-    .stButton>button {
-        background-color: #2563eb !important; color: #ffffff !important;
-        border: 1px solid #1d4ed8 !important; border-radius: 10px !important;
-    }
-    .stPlotlyChart {
-        border-radius: 14px;
-    }
-    div[data-testid="stDownloadButton"] button,
-    div[data-testid="stDownloadButton"] > button {
-        background-color: #2563eb !important; color: #ffffff !important;
-        border: 1px solid #1d4ed8 !important; border-radius: 10px !important;
-    }
-    div[data-baseweb="select"]>div, input {
-        background-color: #ffffff !important; color: #1f2937 !important; border: 1px solid #cbd5e1 !important;
-    }
-    .texto-mono { font-family: 'Cascadia Code', 'Courier New', monospace; font-size: 12px; color: #64748b; }
-</style>
-""", unsafe_allow_html=True)
-
 # --- LOGIN ---
 exigir_login()
 
@@ -263,7 +215,7 @@ def formatar_titulo_grafico(texto: str) -> dict:
     return {
         "title": {
             "text": texto,
-            "font": {"size": 28, "color": "#f8fbff", "family": "Segoe UI, Arial, sans-serif"},
+            "font": {"size": 28},
             "x": 0.02,
             "xanchor": "left",
         },
@@ -416,8 +368,7 @@ if st.session_state.connected:
                     ))
                     fig_pre_o2.update_layout(
                         **formatar_titulo_grafico("Concentração de O2"),
-                        template="plotly_white", paper_bgcolor="rgba(0,0,0,0)",
-                        plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)", height=280,
+                        yaxis_title="Concentração (ppm)", height=280,
                     )
                     st.plotly_chart(fig_pre_o2, use_container_width=True)
 
@@ -428,8 +379,7 @@ if st.session_state.connected:
                     ))
                     fig_pre_h2.update_layout(
                         **formatar_titulo_grafico("Concentração de H2"),
-                        template="plotly_white", paper_bgcolor="rgba(0,0,0,0)",
-                        plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)", height=280,
+                        yaxis_title="Concentração (ppm)", height=280,
                     )
                     st.plotly_chart(fig_pre_h2, use_container_width=True)
             else:
@@ -444,8 +394,7 @@ if st.session_state.connected:
                     **formatar_titulo_grafico(
                         f"Concentração de O2 - média de {st.session_state.intervalo_media_minutos} minuto(s)"
                     ),
-                    template="plotly_white", paper_bgcolor="rgba(0,0,0,0)",
-                    plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)",
+                    yaxis_title="Concentração (ppm)",
                 )
                 st.plotly_chart(fig_o2, use_container_width=True)
 
@@ -459,8 +408,7 @@ if st.session_state.connected:
                     **formatar_titulo_grafico(
                         f"Concentração de H2 - média de {st.session_state.intervalo_media_minutos} minuto(s)"
                     ),
-                    template="plotly_white", paper_bgcolor="rgba(0,0,0,0)",
-                    plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)",
+                    yaxis_title="Concentração (ppm)",
                 )
                 st.plotly_chart(fig_h2, use_container_width=True)
 
@@ -476,8 +424,7 @@ if st.session_state.connected:
                     ))
                     fig_preview_o2.update_layout(
                         **formatar_titulo_grafico("Concentração de O2 em andamento"),
-                        template="plotly_white", paper_bgcolor="rgba(0,0,0,0)",
-                        plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)", height=260,
+                        yaxis_title="Concentração (ppm)", height=260,
                     )
                     st.plotly_chart(fig_preview_o2, use_container_width=True)
 
@@ -489,8 +436,7 @@ if st.session_state.connected:
                     ))
                     fig_preview_h2.update_layout(
                         **formatar_titulo_grafico("Concentração de H2 em andamento"),
-                        template="plotly_white", paper_bgcolor="rgba(0,0,0,0)",
-                        plot_bgcolor="rgba(0,0,0,0)", yaxis_title="Concentração (ppm)", height=260,
+                        yaxis_title="Concentração (ppm)", height=260,
                     )
                     st.plotly_chart(fig_preview_h2, use_container_width=True)
 
@@ -505,7 +451,6 @@ if st.session_state.connected:
                                             name="Umidade (%)", line=dict(color="#60a5fa")), secondary_y=True)
                 fig_ta.update_layout(
                     **formatar_titulo_grafico("Temperatura e Umidade"),
-                    template="plotly_white", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
                 )
                 st.plotly_chart(fig_ta, use_container_width=True)
             with col_b:
@@ -513,8 +458,7 @@ if st.session_state.connected:
                                              name="Pressão (bar)", line=dict(color="#c084fc", width=3)))
                 fig_p.update_layout(
                     **formatar_titulo_grafico("Pressão Atmosférica"),
-                    template="plotly_white", paper_bgcolor="rgba(0,0,0,0)",
-                    plot_bgcolor="rgba(0,0,0,0)", yaxis_title="bar"
+                    yaxis_title="bar"
                 )
                 st.plotly_chart(fig_p, use_container_width=True)
 
