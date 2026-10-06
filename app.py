@@ -74,8 +74,20 @@ def _inicializar_arquivos_csv():
     intervalo = st.session_state.intervalo_media_minutos
     st.session_state.arquivo_bruto_csv = DATA_DIR / f"Bruto_{sufixo_nome}.csv"
     st.session_state.arquivo_media_csv = DATA_DIR / f"Media{intervalo}_{sufixo_nome}.csv"
-    pd.DataFrame(columns=COLUNAS_CSV).to_csv(st.session_state.arquivo_bruto_csv, index=False)
-    pd.DataFrame(columns=COLUNAS_MEDIA_CSV).to_csv(st.session_state.arquivo_media_csv, index=False)
+    if not st.session_state.arquivo_bruto_csv.exists():
+        pd.DataFrame(columns=COLUNAS_CSV).to_csv(st.session_state.arquivo_bruto_csv, index=False)
+    if not st.session_state.arquivo_media_csv.exists():
+        pd.DataFrame(columns=COLUNAS_MEDIA_CSV).to_csv(st.session_state.arquivo_media_csv, index=False)
+
+
+def _anexar_csv(caminho: Path, registro: dict, colunas: list[str]) -> None:
+    """Anexa uma única linha ao arquivo sem substituir os dados anteriores."""
+    pd.DataFrame([registro], columns=colunas).to_csv(
+        caminho,
+        mode="a",
+        header=False,
+        index=False,
+    )
 
 # Buffer temporário: acumula leituras da janela atual para a pré-visualização
 if "buffer_minuto"        not in st.session_state: st.session_state.buffer_minuto = []
@@ -114,12 +126,7 @@ def ler_dados_sensores():
     _inicializar_arquivos_csv()
     # Mantém somente a janela exibida na tela; o histórico completo vai direto para o disco.
     st.session_state.historico_bruto.append(registro)
-    pd.DataFrame([registro], columns=COLUNAS_CSV).to_csv(
-        st.session_state.arquivo_bruto_csv,
-        mode="a",
-        header=False,
-        index=False,
-    )
+    _anexar_csv(st.session_state.arquivo_bruto_csv, registro, COLUNAS_CSV)
     st.session_state.last_read_time = agora
 
     intervalo_segundos = st.session_state.intervalo_media_minutos * 60
@@ -149,12 +156,7 @@ def _fechar_minuto():
             "Ambient_Pressure": df_janela["Ambient_Pressure"].mean(),
             "N_Amostras": len(df_janela),
         }
-        pd.DataFrame([registro_medio], columns=COLUNAS_MEDIA_CSV).to_csv(
-            st.session_state.arquivo_media_csv,
-            mode="a",
-            header=False,
-            index=False,
-        )
+        _anexar_csv(st.session_state.arquivo_media_csv, registro_medio, COLUNAS_MEDIA_CSV)
     st.session_state.buffer_minuto = []
     st.session_state.inicio_minuto_atual = None
 
@@ -229,18 +231,18 @@ with st.sidebar:
     if MODO_SIMULACAO:
         st.caption("🧪 Modo simulação ativo — dados gerados só para teste de interface")
 
-    st.session_state.intervalo_media_minutos = st.selectbox(
-        "Janela de média",
-        options=INTERVALOS_MEDIA_MINUTOS,
-        index=INTERVALOS_MEDIA_MINUTOS.index(st.session_state.intervalo_media_minutos),
-        format_func=lambda valor: f"{valor} minuto{'s' if valor > 1 else ''}",
-    )
-    if st.session_state.intervalo_media_minutos != st.session_state.intervalo_media_minutos_anterior:
-        st.session_state.buffer_minuto = []
-        st.session_state.inicio_minuto_atual = None
-        st.session_state.intervalo_media_minutos_anterior = st.session_state.intervalo_media_minutos
-
     if not st.session_state.connected:
+        st.session_state.intervalo_media_minutos = st.selectbox(
+            "Janela de média",
+            options=INTERVALOS_MEDIA_MINUTOS,
+            index=INTERVALOS_MEDIA_MINUTOS.index(st.session_state.intervalo_media_minutos),
+            format_func=lambda valor: f"{valor} minuto{'s' if valor > 1 else ''}",
+        )
+        if st.session_state.intervalo_media_minutos != st.session_state.intervalo_media_minutos_anterior:
+            st.session_state.buffer_minuto = []
+            st.session_state.inicio_minuto_atual = None
+            st.session_state.intervalo_media_minutos_anterior = st.session_state.intervalo_media_minutos
+
         if MODO_SIMULACAO:
             if st.button("🚀 Conectar (simulado)", use_container_width=True, type="primary"):
                 st.session_state.arduino_handler = HandlerSimulado()
@@ -474,14 +476,13 @@ if st.session_state.connected:
                 df_rt_exib = df_bruto[colunas_rt].sort_values("Timestamp", ascending=False)
                 df_rt_exib.columns = ["Timestamp", "O2 (ppm)", "H2 (ppm)", "Temp (°C)", "Umidade (%)", "Pressão (bar)"]
                 st.dataframe(df_rt_exib, use_container_width=True)
-                with st.session_state.arquivo_bruto_csv.open("rb") as arquivo_csv:
-                    st.download_button(
-                        "⬇️ Baixar leituras em tempo real (CSV)",
-                        data=arquivo_csv,
-                        file_name=st.session_state.arquivo_bruto_csv.name,
-                        mime="text/csv",
-                        use_container_width=True,
-                    )
+                st.download_button(
+                    "⬇️ Baixar leituras em tempo real (CSV)",
+                    data=st.session_state.arquivo_bruto_csv.read_bytes(),
+                    file_name=st.session_state.arquivo_bruto_csv.name,
+                    mime="text/csv",
+                    use_container_width=True,
+                )
 
             # Sub-aba: histórico de médias (uma linha por minuto)
             with sub_med:
@@ -499,14 +500,13 @@ if st.session_state.connected:
                     df_med_exib.columns = ["Timestamp", "O2 média (ppm)", "H2 média (ppm)",
                                            "Temp (°C)", "Umidade (%)", "Pressão (bar)", "Nº amostras"]
                     st.dataframe(df_med_exib, use_container_width=True)
-                    with st.session_state.arquivo_media_csv.open("rb") as arquivo_media_csv:
-                        st.download_button(
-                            "⬇️ Baixar médias por janela (CSV)",
-                            data=arquivo_media_csv,
-                            file_name=st.session_state.arquivo_media_csv.name,
-                            mime="text/csv",
-                            use_container_width=True,
-                        )
+                    st.download_button(
+                        "⬇️ Baixar médias por janela (CSV)",
+                        data=st.session_state.arquivo_media_csv.read_bytes(),
+                        file_name=st.session_state.arquivo_media_csv.name,
+                        mime="text/csv",
+                        use_container_width=True,
+                    )
     else:
         st.info("Aguardando a primeira leitura dos sensores...")
 
