@@ -44,22 +44,27 @@ class ArduinoHandler:
         if not self.is_connected():
             return None
 
-        line = self.arduino.read_line()
-        if not line:
-            return None
+        # O firmware pode enviar temperatura/umidade em uma linha separada
+        # antes da medição de gás. Continue consumindo essas linhas no mesmo ciclo.
+        for _ in range(20):
+            line = self.arduino.read_line()
+            if not line:
+                return None
 
-        parsed = self._parse_sensor_line(line)
-        if parsed is None:
-            return None
+            parsed = self._parse_sensor_line(line)
+            if parsed is None:
+                continue
 
-        if parsed.pop("_ambient_only", False):
-            self._latest_ambient.update(parsed)
-            return None
+            if parsed.pop("_ambient_only", False):
+                self._latest_ambient.update(parsed)
+                continue
 
-        if self._latest_ambient:
-            parsed = {**self._latest_ambient, **parsed}
+            if self._latest_ambient:
+                parsed = {**self._latest_ambient, **parsed}
 
-        return parsed
+            return parsed
+
+        return None
 
     def get_dataframe_format(self, dado_bruto: Dict[str, Any]) -> Dict[str, Any]:
         return {

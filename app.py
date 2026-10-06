@@ -291,11 +291,10 @@ with st.sidebar:
             st.rerun()
 
     st.divider()
-    st.session_state.auto_refresh = st.toggle("Atualização automática", value=st.session_state.auto_refresh)
     st.caption("Leitura serial a cada ~1s")
 
     st.divider()
-    if st.button("🔒 Sair", use_container_width=True):
+    if st.button("Sair", use_container_width=True):
         st.session_state.autenticado = False
         st.rerun()
 

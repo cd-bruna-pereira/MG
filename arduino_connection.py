@@ -9,7 +9,7 @@ from typing import List, Optional, Tuple
 class ArduinoConnection:
     """Conexão serial com o Arduino."""
     
-    def __init__(self, port: Optional[str] = None, baud_rate: int = 9600, timeout: float = 1.0):
+    def __init__(self, port: Optional[str] = None, baud_rate: int = 9600, timeout: float = 0.2):
         """Inicializa a conexão serial."""
         self.port = port
         self.baud_rate = baud_rate
