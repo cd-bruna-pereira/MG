@@ -2,15 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
-const initialReadings = [
-  { time: "12:01", o2: 718000, h2: 282000, temp: 25.8, humidity: 47.2, pressure: 101.28 },
-  { time: "12:02", o2: 715000, h2: 285000, temp: 25.9, humidity: 47.5, pressure: 101.3 },
-  { time: "12:03", o2: 721000, h2: 279000, temp: 26.0, humidity: 47.1, pressure: 101.27 },
-  { time: "12:04", o2: 719000, h2: 281000, temp: 26.1, humidity: 47.8, pressure: 101.31 },
-  { time: "12:05", o2: 723000, h2: 277000, temp: 26.0, humidity: 48.0, pressure: 101.29 },
-  { time: "12:06", o2: 720000, h2: 280003, temp: 26.2, humidity: 47.6, pressure: 101.32 },
-];
-
 const gasConfig = {
   O2: { label: "Oxigênio", color: "#35c8f4", tint: "cyan" },
   H2: { label: "Hidrogênio", color: "#ff9d5c", tint: "orange" },
@@ -24,6 +15,9 @@ function LineChart({ data, dataKey, color, label, unit = "ppm" }) {
   const width = 720;
   const height = 220;
   const values = data.map((item) => item[dataKey]);
+  if (!data.length) {
+    return <div className="chart-wrap"><div className="chart-legend"><span className="legend-dot" style={{ background: color }} />{label}<span className="chart-unit">{unit}</span></div><p>Nenhuma leitura disponível.</p></div>;
+  }
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = max - min || 1;
@@ -95,31 +89,64 @@ function Metric({ icon, label, value, detail, tone }) {
 }
 
 function App() {
+  const apiBase = import.meta.env.VITE_API_URL || "http://localhost:8000";
   const [authenticated, setAuthenticated] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem("gasmix-theme") || "dark");
   const [connected, setConnected] = useState(false);
   const [activeTab, setActiveTab] = useState("concentration");
   const [interval, setIntervalValue] = useState(1);
-  const [readings, setReadings] = useState(initialReadings);
-  const [lastUpdated, setLastUpdated] = useState("12:06:42");
+  const [readings, setReadings] = useState([]);
+  const [lastUpdated, setLastUpdated] = useState("--");
 
   useEffect(() => {
     if (!connected) return undefined;
-    const timer = setInterval(() => {
-      const current = readings[readings.length - 1];
+    const socketUrl = `${apiBase.replace(/^http/, "ws")}/ws`;
+    const socket = new WebSocket(socketUrl);
+    socket.onmessage = async (event) => {
+      const payload = JSON.parse(event.data);
+      const date = new Date(payload.date_time);
       const next = {
-        time: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
-        o2: Math.max(690000, Math.min(750000, current.o2 + (Math.random() - 0.5) * 10000)),
-        h2: Math.max(250000, Math.min(310000, current.h2 + (Math.random() - 0.5) * 10000)),
-        temp: current.temp + (Math.random() - 0.5) * 0.2,
-        humidity: current.humidity + (Math.random() - 0.5) * 0.5,
-        pressure: current.pressure + (Math.random() - 0.5) * 0.06,
+        time: date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+        o2: payload.concentracao_o2,
+        h2: payload.concentracao_h2,
+        temp: payload.temperatura,
+        humidity: payload.umidade,
+        pressure: payload.pressao,
       };
       setReadings((items) => [...items.slice(-7), next]);
-      setLastUpdated(`${next.time}:${new Date().getSeconds().toString().padStart(2, "0")}`);
-    }, 2000);
-    return () => clearInterval(timer);
-  }, [connected, readings]);
+      setLastUpdated(date.toLocaleTimeString("pt-BR"));
+    };
+    socket.onerror = () => setConnected(false);
+    return () => socket.close();
+  }, [apiBase, connected]);
+
+  useEffect(() => {
+    if (!connected) return undefined;
+    const end = new Date();
+    const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
+    const params = new URLSearchParams({ inicio: start.toISOString(), fim: end.toISOString() });
+    fetch(`${apiBase}/api/leituras?${params}`)
+      .then((response) => {
+        if (!response.ok) throw new Error("Não foi possível consultar o histórico.");
+        return response.json();
+      })
+      .then((items) => {
+        if (!items.length) return;
+        setReadings(items.slice(-8).map((item) => {
+          const date = new Date(item.date_time);
+          return {
+            time: date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+            o2: item.concentracao_o2,
+            h2: item.concentracao_h2,
+            temp: item.temperatura,
+            humidity: item.umidade,
+            pressure: item.pressao,
+          };
+        }));
+      })
+      .catch(() => setConnected(false));
+    return undefined;
+  }, [apiBase, connected]);
 
   const current = readings[readings.length - 1];
   const previous = readings[readings.length - 2];
@@ -150,7 +177,7 @@ function App() {
         <p className="nav-heading">PAINEL</p>
         <button className="nav-item active"><span>◈</span> Visão geral</button>
         <p className="nav-heading equipment">EQUIPAMENTO</p>
-        <div className={`connection-status ${connected ? "online" : ""}`}><span className="status-dot" /><div><strong>{connected ? "Sistema conectado" : "Sistema offline"}</strong><small>{connected ? "Simulador ativo" : "Aguardando conexão"}</small></div></div>
+        <div className={`connection-status ${connected ? "online" : ""}`}><span className="status-dot" /><div><strong>{connected ? "Sistema conectado" : "Sistema offline"}</strong><small>{connected ? "Arduino em tempo real" : "Aguardando conexão"}</small></div></div>
         <label className="sidebar-setting">Janela de média<select value={interval} onChange={(event) => setIntervalValue(event.target.value)}><option value="1">1 minuto</option><option value="5">5 minutos</option><option value="10">10 minutos</option></select></label>
         <button className="button primary sidebar-connect" onClick={() => setConnected((value) => !value)}>{connected ? "Desconectar Arduino" : "Conectar Arduino"} <span>{connected ? "×" : "→"}</span></button>
       </nav>
@@ -175,7 +202,7 @@ function App() {
       </section>}
       {activeTab === "environment" && <section className="charts-grid"><article className="panel"><div className="panel-heading"><div><h2>Temperatura ambiente</h2><p>Leituras brutas em tempo real</p></div></div><LineChart data={readings} dataKey="temp" color="#ff6f72" label="Temperatura" unit="°C" /></article><article className="panel"><div className="panel-heading"><div><h2>Umidade relativa</h2><p>Leituras brutas em tempo real</p></div></div><LineChart data={readings} dataKey="humidity" color="#60a5fa" label="Umidade" unit="%" /></article><article className="panel"><div className="panel-heading"><div><h2>Pressão atmosférica</h2><p>Leituras brutas em tempo real</p></div></div><LineChart data={readings} dataKey="pressure" color="#bb8cff" label="Pressão" unit="bar" /></article></section>}
       {activeTab === "history" && <section className="panel history-panel"><div className="panel-heading"><div><h2>Leituras em tempo real</h2><p>Dados recebidos do sensor</p></div><a className="button secondary" href={`data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`} download="leituras-gasmix.csv">↓ Baixar CSV</a></div><div className="table-scroll"><table><thead><tr><th>Horário</th><th>O₂ (ppm)</th><th>H₂ (ppm)</th><th>Temperatura (°C)</th><th>Umidade (%)</th><th>Pressão (bar)</th></tr></thead><tbody>{[...readings].reverse().map((item) => <tr key={`${item.time}-${item.o2}`}><td>{item.time}</td><td>{item.o2.toLocaleString("pt-BR")}</td><td>{item.h2.toLocaleString("pt-BR")}</td><td>{item.temp.toFixed(1)}</td><td>{item.humidity.toFixed(1)}</td><td>{item.pressure.toFixed(2)}</td></tr>)}</tbody></table></div></section>}
-      <footer>GasMix Monitoring <span>·</span> Dados exibidos em modo simulação</footer>
+      <footer>GasMix Monitoring <span>·</span> Dados recebidos do backend</footer>
     </main>
   </div>;
 }
