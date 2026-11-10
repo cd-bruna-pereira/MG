@@ -5,6 +5,12 @@
 streamlit run app.py
 ```
 
+Por padrão, o aplicativo inicia em **modo simulação**, sem exigir um Arduino
+conectado. Na barra lateral, clique em **Conectar (simulado)** para visualizar
+a interface com dados sintéticos.
+
+Para conectar ao Arduino, altere `MODO_SIMULACAO` para `False` em `app.py`.
+
 ## Senha de acesso
 Senha padrão: **H2O2#2026**
 

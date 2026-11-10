@@ -19,7 +19,7 @@ exigir_login()
 
 #   True  -> usa o simulador (simulador.py) para testar a tela sem hardware
 #   False -> usa a conexão real com o Arduino
-MODO_SIMULACAO = False
+MODO_SIMULACAO = True
 INTERVALOS_MEDIA_MINUTOS = [1, 5, 10]
 DATA_DIR = Path(__file__).resolve().parent / "Data"
 COLUNAS_CSV = [
