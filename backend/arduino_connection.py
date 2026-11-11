@@ -29,6 +29,15 @@ class ArduinoConnection:
 
         return max(ports, key=score).device
 
+    def list_available_ports(self) -> List[dict[str, str]]:
+        return [
+            {
+                "device": port.device,
+                "description": port.description or port.device,
+            }
+            for port in serial.tools.list_ports.comports()
+        ]
+
     def connect(self, port: Optional[str] = None) -> bool:
         self.port = port or self.port
         if not self.port:

@@ -35,10 +35,10 @@ function LineChart({ data, dataKey, color, label, unit = "ppm" }) {
         <polyline points={points} fill="none" stroke={color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
         {data.map((item, index) => {
           const [x, y] = points.split(" ")[index].split(",");
-          return <circle key={item.time} cx={x} cy={y} r="4" fill="#101c2d" stroke={color} strokeWidth="2" />;
+          return <circle key={`${item.time}-${index}`} cx={x} cy={y} r="4" fill="#101c2d" stroke={color} strokeWidth="2" />;
         })}
       </svg>
-      <div className="chart-labels">{data.map((item) => <span key={item.time}>{item.time}</span>)}</div>
+      <div className="chart-labels">{data.map((item, index) => <span key={`${item.time}-${index}`}>{item.time}</span>)}</div>
     </div>
   );
 }
@@ -93,10 +93,31 @@ function App() {
   const [authenticated, setAuthenticated] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem("gasmix-theme") || "dark");
   const [connected, setConnected] = useState(false);
+  const [arduinoStatus, setArduinoStatus] = useState({ connected: false, last_reading: null, error: null });
+  const [availablePorts, setAvailablePorts] = useState([]);
+  const [selectedPort, setSelectedPort] = useState("");
+  const [connectionError, setConnectionError] = useState("");
   const [activeTab, setActiveTab] = useState("concentration");
   const [interval, setIntervalValue] = useState(1);
   const [readings, setReadings] = useState([]);
   const [lastUpdated, setLastUpdated] = useState("--");
+
+  async function loadAvailablePorts() {
+    try {
+      const response = await fetch(`${apiBase}/api/arduino/ports`);
+      if (!response.ok) throw new Error("Não foi possível listar as portas.");
+      const ports = await response.json();
+      setAvailablePorts(ports);
+      setSelectedPort((currentPort) => currentPort || ports[0]?.device || "");
+      setConnectionError("");
+    } catch {
+      setConnectionError("Não foi possível listar as portas seriais.");
+    }
+  }
+
+  useEffect(() => {
+    loadAvailablePorts();
+  }, [apiBase]);
 
   useEffect(() => {
     if (!connected) return undefined;
@@ -120,32 +141,95 @@ function App() {
     return () => socket.close();
   }, [apiBase, connected]);
 
+  async function toggleArduinoConnection() {
+    setConnectionError("");
+    if (connected) {
+      await fetch(`${apiBase}/api/arduino/disconnect`, { method: "POST" });
+      setConnected(false);
+      return;
+    }
+    if (!selectedPort) {
+      setConnectionError("Selecione uma porta serial.");
+      return;
+    }
+    try {
+      const response = await fetch(`${apiBase}/api/arduino/connect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ port: selectedPort }),
+      });
+      const status = await response.json();
+      if (!response.ok) throw new Error(status.detail || "Não foi possível conectar.");
+      setArduinoStatus(status);
+      setConnected(true);
+    } catch (error) {
+      setConnectionError(error.message);
+    }
+  }
+
+  useEffect(() => {
+    if (!connected) {
+      setArduinoStatus({ connected: false, last_reading: null, error: null });
+      return undefined;
+    }
+    let active = true;
+    const updateStatus = () => {
+      fetch(`${apiBase}/api/arduino/status`)
+        .then((response) => {
+          if (!response.ok) throw new Error("Não foi possível consultar o Arduino.");
+          return response.json();
+        })
+        .then((status) => {
+          if (active) setArduinoStatus(status);
+        })
+        .catch(() => {
+          if (active) setArduinoStatus({ connected: false, last_reading: null, error: "Backend indisponível" });
+        });
+    };
+    updateStatus();
+    const timer = window.setInterval(updateStatus, 2000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [apiBase, connected]);
+
   useEffect(() => {
     if (!connected) return undefined;
-    const end = new Date();
-    const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
-    const params = new URLSearchParams({ inicio: start.toISOString(), fim: end.toISOString() });
-    fetch(`${apiBase}/api/leituras?${params}`)
-      .then((response) => {
-        if (!response.ok) throw new Error("Não foi possível consultar o histórico.");
-        return response.json();
-      })
-      .then((items) => {
-        if (!items.length) return;
-        setReadings(items.slice(-8).map((item) => {
-          const date = new Date(item.date_time);
-          return {
-            time: date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
-            o2: item.concentracao_o2,
-            h2: item.concentracao_h2,
-            temp: item.temperatura,
-            humidity: item.umidade,
-            pressure: item.pressao,
-          };
-        }));
-      })
-      .catch(() => setConnected(false));
-    return undefined;
+    let active = true;
+    const loadReadings = () => {
+      const end = new Date();
+      const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
+      const params = new URLSearchParams({ inicio: start.toISOString(), fim: end.toISOString() });
+      fetch(`${apiBase}/api/leituras?${params}`)
+        .then((response) => {
+          if (!response.ok) throw new Error("Não foi possível consultar o histórico.");
+          return response.json();
+        })
+        .then((items) => {
+          if (!active) return;
+          setReadings(items.slice(-8).map((item) => {
+            const date = new Date(item.date_time);
+            return {
+              time: date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+              o2: item.concentracao_o2,
+              h2: item.concentracao_h2,
+              temp: item.temperatura,
+              humidity: item.umidade,
+              pressure: item.pressao,
+            };
+          }));
+        })
+        .catch(() => {
+          if (active) setConnectionError("Não foi possível carregar as leituras do banco.");
+        });
+    };
+    loadReadings();
+    const timer = window.setInterval(loadReadings, 5000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
   }, [apiBase, connected]);
 
   const current = readings[readings.length - 1];
@@ -154,7 +238,11 @@ function App() {
     o2: movingAverage(readings, "o2"),
     h2: movingAverage(readings, "h2"),
   }), [readings]);
-  const delta = (key, digits = 0) => `${current[key] - previous[key] >= 0 ? "+" : ""}${(current[key] - previous[key]).toFixed(digits)}`;
+  const delta = (key, digits = 0) => {
+    if (!current || !previous) return "--";
+    const difference = current[key] - previous[key];
+    return `${difference >= 0 ? "+" : ""}${difference.toFixed(digits)}`;
+  };
   const csv = useMemo(() => [
     "Timestamp,O2_Conc,H2_Conc,Ambient_Temp,Ambient_Hum,Ambient_Pressure",
     ...readings.map((item) => `${item.time},${item.o2},${item.h2},${item.temp.toFixed(1)},${item.humidity.toFixed(1)},${item.pressure.toFixed(2)}`),
@@ -177,9 +265,11 @@ function App() {
         <p className="nav-heading">PAINEL</p>
         <button className="nav-item active"><span>◈</span> Visão geral</button>
         <p className="nav-heading equipment">EQUIPAMENTO</p>
-        <div className={`connection-status ${connected ? "online" : ""}`}><span className="status-dot" /><div><strong>{connected ? "Sistema conectado" : "Sistema offline"}</strong><small>{connected ? "Arduino em tempo real" : "Aguardando conexão"}</small></div></div>
+        <div className={`connection-status ${arduinoStatus.connected ? "online" : ""}`}><span className="status-dot" /><div><strong>{arduinoStatus.connected ? "Arduino conectado" : "Arduino não detectado"}</strong><small>{arduinoStatus.error || (arduinoStatus.last_reading ? `Última leitura: ${new Date(arduinoStatus.last_reading).toLocaleTimeString("pt-BR")}` : "Aguardando leitura")}</small></div></div>
+        <label className="sidebar-setting">Porta do Arduino<select value={selectedPort} onChange={(event) => setSelectedPort(event.target.value)} disabled={connected}><option value="">Selecione uma porta</option>{availablePorts.map((port) => <option key={port.device} value={port.device}>{port.device} - {port.description}</option>)}</select><button className="button secondary" type="button" onClick={loadAvailablePorts} disabled={connected}>Atualizar portas</button></label>
         <label className="sidebar-setting">Janela de média<select value={interval} onChange={(event) => setIntervalValue(event.target.value)}><option value="1">1 minuto</option><option value="5">5 minutos</option><option value="10">10 minutos</option></select></label>
-        <button className="button primary sidebar-connect" onClick={() => setConnected((value) => !value)}>{connected ? "Desconectar Arduino" : "Conectar Arduino"} <span>{connected ? "×" : "→"}</span></button>
+        {connectionError && <p className="form-error">{connectionError}</p>}
+        <button className="button primary sidebar-connect" onClick={toggleArduinoConnection}>{connected ? "Desconectar Arduino" : "Conectar Arduino"} <span>{connected ? "×" : "→"}</span></button>
       </nav>
       <div className="sidebar-bottom"><button className="nav-item logout" onClick={() => setAuthenticated(false)}><span>↪</span> Sair</button></div>
     </aside>
@@ -187,11 +277,11 @@ function App() {
       <header className="topbar"><div><p className="eyebrow">VISÃO GERAL</p><h1>Monitor do misturador</h1></div><div className="top-actions"><button className="theme-toggle" onClick={toggleTheme} aria-label={`Ativar modo ${theme === "dark" ? "claro" : "escuro"}`} title={`Modo ${theme === "dark" ? "claro" : "escuro"}`}>{theme === "dark" ? "☀" : "☾"}</button></div></header>
       <section className="section-heading"><div><h2>Leituras atuais</h2><p>Última atualização hoje, {lastUpdated}</p></div><span className="sample-count">{readings.length} amostras coletadas</span></section>
       <div className="metrics-grid">
-        <Metric tone="cyan" icon="O₂" label="Concentração de oxigênio" value={`${(current.o2 / 1e6).toFixed(3)} ×10⁶ ppm`} detail={`${delta("o2", 0)} ppm desde a última leitura`} />
-        <Metric tone="orange" icon="H₂" label="Concentração de hidrogênio" value={`${(current.h2 / 1000).toFixed(1)}k ppm`} detail={`${delta("h2", 0)} ppm desde a última leitura`} />
-        <Metric tone="red" icon="°" label="Temperatura ambiente" value={`${current.temp.toFixed(1)} °C`} detail={`${delta("temp", 1)} °C desde a última leitura`} />
-        <Metric tone="blue" icon="◒" label="Umidade relativa" value={`${current.humidity.toFixed(1)} %`} detail={`${delta("humidity", 1)} % desde a última leitura`} />
-        <Metric tone="purple" icon="⌁" label="Pressão atmosférica" value={`${current.pressure.toFixed(2)} bar`} detail={`${delta("pressure", 2)} bar desde a última leitura`} />
+        <Metric tone="cyan" icon="O₂" label="Concentração de oxigênio" value={current ? `${(current.o2 / 1e6).toFixed(3)} ×10⁶ ppm` : "--"} detail={`${delta("o2", 0)} ppm desde a última leitura`} />
+        <Metric tone="orange" icon="H₂" label="Concentração de hidrogênio" value={current ? `${(current.h2 / 1000).toFixed(1)}k ppm` : "--"} detail={`${delta("h2", 0)} ppm desde a última leitura`} />
+        <Metric tone="red" icon="°" label="Temperatura ambiente" value={current ? `${current.temp.toFixed(1)} °C` : "--"} detail={`${delta("temp", 1)} °C desde a última leitura`} />
+        <Metric tone="blue" icon="◒" label="Umidade relativa" value={current ? `${current.humidity.toFixed(1)} %` : "--"} detail={`${delta("humidity", 1)} % desde a última leitura`} />
+        <Metric tone="purple" icon="⌁" label="Pressão atmosférica" value={current ? `${current.pressure.toFixed(2)} bar` : "--"} detail={`${delta("pressure", 2)} bar desde a última leitura`} />
       </div>
       <div className="tabs">{[["concentration", "Concentração O₂ / H₂"], ["environment", "Condições ambientais"], ["history", "Histórico"]].map(([key, label]) => <button key={key} className={activeTab === key ? "selected" : ""} onClick={() => setActiveTab(key)}>{label}</button>)}</div>
       {activeTab === "concentration" && <section className="charts-grid concentration-charts">
@@ -201,7 +291,7 @@ function App() {
         <article className="panel"><div className="panel-heading"><div><h2>H₂ por média</h2><p>Média móvel de {interval} minuto{interval > 1 ? "s" : ""}</p></div></div><LineChart data={averageReadings.h2} dataKey="h2" color={gasConfig.H2.color} label="H₂ · média" /></article>
       </section>}
       {activeTab === "environment" && <section className="charts-grid"><article className="panel"><div className="panel-heading"><div><h2>Temperatura ambiente</h2><p>Leituras brutas em tempo real</p></div></div><LineChart data={readings} dataKey="temp" color="#ff6f72" label="Temperatura" unit="°C" /></article><article className="panel"><div className="panel-heading"><div><h2>Umidade relativa</h2><p>Leituras brutas em tempo real</p></div></div><LineChart data={readings} dataKey="humidity" color="#60a5fa" label="Umidade" unit="%" /></article><article className="panel"><div className="panel-heading"><div><h2>Pressão atmosférica</h2><p>Leituras brutas em tempo real</p></div></div><LineChart data={readings} dataKey="pressure" color="#bb8cff" label="Pressão" unit="bar" /></article></section>}
-      {activeTab === "history" && <section className="panel history-panel"><div className="panel-heading"><div><h2>Leituras em tempo real</h2><p>Dados recebidos do sensor</p></div><a className="button secondary" href={`data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`} download="leituras-gasmix.csv">↓ Baixar CSV</a></div><div className="table-scroll"><table><thead><tr><th>Horário</th><th>O₂ (ppm)</th><th>H₂ (ppm)</th><th>Temperatura (°C)</th><th>Umidade (%)</th><th>Pressão (bar)</th></tr></thead><tbody>{[...readings].reverse().map((item) => <tr key={`${item.time}-${item.o2}`}><td>{item.time}</td><td>{item.o2.toLocaleString("pt-BR")}</td><td>{item.h2.toLocaleString("pt-BR")}</td><td>{item.temp.toFixed(1)}</td><td>{item.humidity.toFixed(1)}</td><td>{item.pressure.toFixed(2)}</td></tr>)}</tbody></table></div></section>}
+      {activeTab === "history" && <section className="panel history-panel"><div className="panel-heading"><div><h2>Leituras em tempo real</h2><p>Dados recebidos do sensor</p></div><a className="button secondary" href={`data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`} download="leituras-gasmix.csv">↓ Baixar CSV</a></div><div className="table-scroll"><table><thead><tr><th>Horário</th><th>O₂ (ppm)</th><th>H₂ (ppm)</th><th>Temperatura (°C)</th><th>Umidade (%)</th><th>Pressão (bar)</th></tr></thead><tbody>{[...readings].reverse().map((item, index) => <tr key={`${item.time}-${index}`}><td>{item.time}</td><td>{item.o2.toLocaleString("pt-BR")}</td><td>{item.h2.toLocaleString("pt-BR")}</td><td>{item.temp.toFixed(1)}</td><td>{item.humidity.toFixed(1)}</td><td>{item.pressure.toFixed(2)}</td></tr>)}</tbody></table></div></section>}
       <footer>GasMix Monitoring <span>·</span> Dados recebidos do backend</footer>
     </main>
   </div>;

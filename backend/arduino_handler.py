@@ -41,6 +41,15 @@ class ArduinoHandler:
 
     def _parse_sensor_line(self, line: str) -> Optional[Dict[str, Any]]:
         payload = line.split("->", 1)[-1].strip()
+        mq8_match = re.search(
+            r"Medida\s+MQ8:\s*([+-]?\d+(?:[.,]\d+)?)",
+            payload,
+            re.IGNORECASE,
+        )
+        if mq8_match:
+            value = float(mq8_match.group(1).replace(",", "."))
+            return {"mq8": value, "H2_Raw": value}
+
         if payload.startswith("{") and payload.endswith("}"):
             try:
                 value = json.loads(payload)
@@ -57,7 +66,12 @@ class ArduinoHandler:
         if "=" in normalized or ":" in normalized:
             result: Dict[str, Any] = {}
             for item in normalized.split(","):
-                separator = "=" if "=" in item else ":"
+                if "=" in item:
+                    separator = "="
+                elif ":" in item:
+                    separator = ":"
+                else:
+                    continue
                 key, value = item.split(separator, 1)
                 try:
                     result[key.strip()] = float(value.strip().replace(",", "."))
