@@ -43,19 +43,14 @@ function LineChart({ data, dataKey, color, label, unit = "ppm" }) {
   );
 }
 
-function movingAverage(data, key, windowSize = 3) {
+function movingAverageRows(data, windowMinutes) {
+  const windowMilliseconds = Number(windowMinutes) * 60 * 1000;
   return data.map((item, index) => {
-    const window = data.slice(Math.max(0, index - windowSize + 1), index + 1);
-    return {
-      ...item,
-      [key]: window.reduce((total, entry) => total + entry[key], 0) / window.length,
-    };
-  });
-}
-
-function movingAverageRows(data, windowSize = 3) {
-  return data.map((item, index) => {
-    const window = data.slice(Math.max(0, index - windowSize + 1), index + 1);
+    const itemTime = new Date(item.dateTime).getTime();
+    const window = data.slice(0, index + 1).filter((entry) => {
+      const entryTime = new Date(entry.dateTime).getTime();
+      return Number.isNaN(itemTime) || Number.isNaN(entryTime) || itemTime - entryTime <= windowMilliseconds;
+    });
     return {
       ...item,
       o2: window.reduce((total, entry) => total + entry.o2, 0) / window.length,
@@ -290,11 +285,14 @@ function App() {
 
   const current = readings[readings.length - 1];
   const previous = readings[readings.length - 2];
+  const historyAverages = useMemo(
+    () => movingAverageRows(historyReadings, interval),
+    [historyReadings, interval],
+  );
   const averageReadings = useMemo(() => ({
-    o2: movingAverage(readings, "o2"),
-    h2: movingAverage(readings, "h2"),
-  }), [readings]);
-  const historyAverages = useMemo(() => movingAverageRows(historyReadings), [historyReadings]);
+    o2: historyAverages,
+    h2: historyAverages,
+  }), [historyAverages]);
   const delta = (key, digits = 0) => {
     if (!current || !previous) return "--";
     const difference = current[key] - previous[key];
