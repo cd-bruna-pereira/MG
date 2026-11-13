@@ -272,7 +272,6 @@ function App() {
       const response = await fetch(`${apiBase}/api/leituras?${params}`);
       if (!response.ok) throw new Error("Não foi possível consultar o período informado.");
       setHistoryReadings((await response.json()).map(mapReading));
-      setHistoryMode("filtered");
     } catch (error) {
       setConnectionError(error.message);
     } finally {
@@ -280,21 +279,13 @@ function App() {
     }
   }
 
-  function showRealtimeHistory() {
-    setHistoryMode("realtime");
+  function changeHistoryMode(event) {
+    const nextMode = event.target.value;
+    setHistoryMode(nextMode);
+    setHistoryReadings([]);
     setConnectionError("");
-    const end = new Date();
-    const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
-    const params = new URLSearchParams({ inicio: start.toISOString(), fim: end.toISOString() });
-    setHistoryLoading(true);
-    fetch(`${apiBase}/api/leituras?${params}`)
-      .then((response) => {
-        if (!response.ok) throw new Error("Não foi possível consultar as leituras recentes.");
-        return response.json();
-      })
-      .then((items) => setHistoryReadings(items.map(mapReading)))
-      .catch((error) => setConnectionError(error.message))
-      .finally(() => setHistoryLoading(false));
+    setFilterStart("");
+    setFilterEnd("");
   }
 
   const current = readings[readings.length - 1];
@@ -368,12 +359,17 @@ function App() {
           <a className="button secondary" href={`data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`} download="leituras-gasmix.csv">↓ Baixar CSV</a>
         </div>
         <div className="history-toolbar">
-          <button className={`button ${historyMode === "realtime" ? "primary" : "secondary"}`} type="button" onClick={showRealtimeHistory}>Tempo real</button>
-          <form className="history-filter" onSubmit={applyHistoryFilter}>
+          <label className="history-mode">Visualização
+            <select value={historyMode} onChange={changeHistoryMode}>
+              <option value="realtime">Tempo real</option>
+              <option value="filtered">Filtrar por período</option>
+            </select>
+          </label>
+          {historyMode === "filtered" && <form className="history-filter" onSubmit={applyHistoryFilter}>
             <label>Início<input type="datetime-local" value={filterStart} onChange={(event) => setFilterStart(event.target.value)} /></label>
             <label>Fim<input type="datetime-local" value={filterEnd} onChange={(event) => setFilterEnd(event.target.value)} /></label>
             <button className="button primary" type="submit" disabled={historyLoading}>{historyLoading ? "Consultando..." : "Filtrar"}</button>
-          </form>
+          </form>}
         </div>
         {connectionError && <p className="form-error">{connectionError}</p>}
         <h3 className="history-table-title">Leituras individuais ({historyReadings.length})</h3>
