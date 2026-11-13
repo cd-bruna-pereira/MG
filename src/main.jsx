@@ -53,6 +53,33 @@ function movingAverage(data, key, windowSize = 3) {
   });
 }
 
+function movingAverageRows(data, windowSize = 3) {
+  return data.map((item, index) => {
+    const window = data.slice(Math.max(0, index - windowSize + 1), index + 1);
+    return {
+      ...item,
+      o2: window.reduce((total, entry) => total + entry.o2, 0) / window.length,
+      h2: window.reduce((total, entry) => total + entry.h2, 0) / window.length,
+      temp: window.reduce((total, entry) => total + entry.temp, 0) / window.length,
+      humidity: window.reduce((total, entry) => total + entry.humidity, 0) / window.length,
+      pressure: window.reduce((total, entry) => total + entry.pressure, 0) / window.length,
+    };
+  });
+}
+
+function mapReading(item) {
+  const date = new Date(item.date_time);
+  return {
+    dateTime: item.date_time,
+    time: date.toLocaleString("pt-BR"),
+    o2: item.concentracao_o2,
+    h2: item.concentracao_h2,
+    temp: item.temperatura,
+    humidity: item.umidade,
+    pressure: item.pressao,
+  };
+}
+
 function Login({ onLogin }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -100,6 +127,11 @@ function App() {
   const [activeTab, setActiveTab] = useState("concentration");
   const [interval, setIntervalValue] = useState(1);
   const [readings, setReadings] = useState([]);
+  const [historyReadings, setHistoryReadings] = useState([]);
+  const [historyMode, setHistoryMode] = useState("realtime");
+  const [filterStart, setFilterStart] = useState("");
+  const [filterEnd, setFilterEnd] = useState("");
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState("--");
 
   async function loadAvailablePorts() {
@@ -125,21 +157,17 @@ function App() {
     const socket = new WebSocket(socketUrl);
     socket.onmessage = async (event) => {
       const payload = JSON.parse(event.data);
+      const next = mapReading(payload);
       const date = new Date(payload.date_time);
-      const next = {
-        time: date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
-        o2: payload.concentracao_o2,
-        h2: payload.concentracao_h2,
-        temp: payload.temperatura,
-        humidity: payload.umidade,
-        pressure: payload.pressao,
-      };
       setReadings((items) => [...items.slice(-7), next]);
+      if (historyMode === "realtime") {
+        setHistoryReadings((items) => [...items, next]);
+      }
       setLastUpdated(date.toLocaleTimeString("pt-BR"));
     };
     socket.onerror = () => setConnected(false);
     return () => socket.close();
-  }, [apiBase, connected]);
+  }, [apiBase, connected, historyMode]);
 
   async function toggleArduinoConnection() {
     setConnectionError("");
@@ -208,17 +236,9 @@ function App() {
         })
         .then((items) => {
           if (!active) return;
-          setReadings(items.slice(-8).map((item) => {
-            const date = new Date(item.date_time);
-            return {
-              time: date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
-              o2: item.concentracao_o2,
-              h2: item.concentracao_h2,
-              temp: item.temperatura,
-              humidity: item.umidade,
-              pressure: item.pressao,
-            };
-          }));
+          const mapped = items.map(mapReading);
+          setReadings(mapped.slice(-8));
+          setHistoryReadings(mapped);
         })
         .catch(() => {
           if (active) setConnectionError("Não foi possível carregar as leituras do banco.");
@@ -232,21 +252,72 @@ function App() {
     };
   }, [apiBase, connected]);
 
+  async function applyHistoryFilter(event) {
+    event.preventDefault();
+    if (!filterStart || !filterEnd) {
+      setConnectionError("Informe a data e o horário inicial e final.");
+      return;
+    }
+    if (new Date(filterStart) > new Date(filterEnd)) {
+      setConnectionError("O início do filtro deve ser anterior ao fim.");
+      return;
+    }
+    setHistoryLoading(true);
+    setConnectionError("");
+    try {
+      const params = new URLSearchParams({
+        inicio: new Date(filterStart).toISOString(),
+        fim: new Date(filterEnd).toISOString(),
+      });
+      const response = await fetch(`${apiBase}/api/leituras?${params}`);
+      if (!response.ok) throw new Error("Não foi possível consultar o período informado.");
+      setHistoryReadings((await response.json()).map(mapReading));
+      setHistoryMode("filtered");
+    } catch (error) {
+      setConnectionError(error.message);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  function showRealtimeHistory() {
+    setHistoryMode("realtime");
+    setConnectionError("");
+    const end = new Date();
+    const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
+    const params = new URLSearchParams({ inicio: start.toISOString(), fim: end.toISOString() });
+    setHistoryLoading(true);
+    fetch(`${apiBase}/api/leituras?${params}`)
+      .then((response) => {
+        if (!response.ok) throw new Error("Não foi possível consultar as leituras recentes.");
+        return response.json();
+      })
+      .then((items) => setHistoryReadings(items.map(mapReading)))
+      .catch((error) => setConnectionError(error.message))
+      .finally(() => setHistoryLoading(false));
+  }
+
   const current = readings[readings.length - 1];
   const previous = readings[readings.length - 2];
   const averageReadings = useMemo(() => ({
     o2: movingAverage(readings, "o2"),
     h2: movingAverage(readings, "h2"),
   }), [readings]);
+  const historyAverages = useMemo(() => movingAverageRows(historyReadings), [historyReadings]);
   const delta = (key, digits = 0) => {
     if (!current || !previous) return "--";
     const difference = current[key] - previous[key];
     return `${difference >= 0 ? "+" : ""}${difference.toFixed(digits)}`;
   };
-  const csv = useMemo(() => [
-    "Timestamp,O2_Conc,H2_Conc,Ambient_Temp,Ambient_Hum,Ambient_Pressure",
-    ...readings.map((item) => `${item.time},${item.o2},${item.h2},${item.temp.toFixed(1)},${item.humidity.toFixed(1)},${item.pressure.toFixed(2)}`),
-  ].join("\n"), [readings]);
+  const csv = useMemo(() => {
+    const headers = "Tipo,Timestamp,O2_Conc,H2_Conc,Ambient_Temp,Ambient_Hum,Ambient_Pressure";
+    const row = (type, item) => [type, item.dateTime, item.o2, item.h2, item.temp, item.humidity, item.pressure].join(",");
+    return [
+      headers,
+      ...historyReadings.map((item) => row("Leitura", item)),
+      ...historyAverages.map((item) => row("Média móvel", item)),
+    ].join("\n");
+  }, [historyReadings, historyAverages]);
 
   if (!authenticated) return <Login onLogin={() => setAuthenticated(true)} />;
 
@@ -291,7 +362,25 @@ function App() {
         <article className="panel"><div className="panel-heading"><div><h2>H₂ por média</h2><p>Média móvel de {interval} minuto{interval > 1 ? "s" : ""}</p></div></div><LineChart data={averageReadings.h2} dataKey="h2" color={gasConfig.H2.color} label="H₂ · média" /></article>
       </section>}
       {activeTab === "environment" && <section className="charts-grid"><article className="panel"><div className="panel-heading"><div><h2>Temperatura ambiente</h2><p>Leituras brutas em tempo real</p></div></div><LineChart data={readings} dataKey="temp" color="#ff6f72" label="Temperatura" unit="°C" /></article><article className="panel"><div className="panel-heading"><div><h2>Umidade relativa</h2><p>Leituras brutas em tempo real</p></div></div><LineChart data={readings} dataKey="humidity" color="#60a5fa" label="Umidade" unit="%" /></article><article className="panel"><div className="panel-heading"><div><h2>Pressão atmosférica</h2><p>Leituras brutas em tempo real</p></div></div><LineChart data={readings} dataKey="pressure" color="#bb8cff" label="Pressão" unit="bar" /></article></section>}
-      {activeTab === "history" && <section className="panel history-panel"><div className="panel-heading"><div><h2>Leituras em tempo real</h2><p>Dados recebidos do sensor</p></div><a className="button secondary" href={`data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`} download="leituras-gasmix.csv">↓ Baixar CSV</a></div><div className="table-scroll"><table><thead><tr><th>Horário</th><th>O₂ (ppm)</th><th>H₂ (ppm)</th><th>Temperatura (°C)</th><th>Umidade (%)</th><th>Pressão (bar)</th></tr></thead><tbody>{[...readings].reverse().map((item, index) => <tr key={`${item.time}-${index}`}><td>{item.time}</td><td>{item.o2.toLocaleString("pt-BR")}</td><td>{item.h2.toLocaleString("pt-BR")}</td><td>{item.temp.toFixed(1)}</td><td>{item.humidity.toFixed(1)}</td><td>{item.pressure.toFixed(2)}</td></tr>)}</tbody></table></div></section>}
+      {activeTab === "history" && <section className="panel history-panel">
+        <div className="panel-heading">
+          <div><h2>Histórico de leituras</h2><p>{historyMode === "realtime" ? "Últimas 24 horas, atualizado em tempo real" : "Período filtrado no banco de dados"}</p></div>
+          <a className="button secondary" href={`data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`} download="leituras-gasmix.csv">↓ Baixar CSV</a>
+        </div>
+        <div className="history-toolbar">
+          <button className={`button ${historyMode === "realtime" ? "primary" : "secondary"}`} type="button" onClick={showRealtimeHistory}>Tempo real</button>
+          <form className="history-filter" onSubmit={applyHistoryFilter}>
+            <label>Início<input type="datetime-local" value={filterStart} onChange={(event) => setFilterStart(event.target.value)} /></label>
+            <label>Fim<input type="datetime-local" value={filterEnd} onChange={(event) => setFilterEnd(event.target.value)} /></label>
+            <button className="button primary" type="submit" disabled={historyLoading}>{historyLoading ? "Consultando..." : "Filtrar"}</button>
+          </form>
+        </div>
+        {connectionError && <p className="form-error">{connectionError}</p>}
+        <h3 className="history-table-title">Leituras individuais ({historyReadings.length})</h3>
+        <div className="table-scroll"><table><thead><tr><th>Horário</th><th>O₂ (ppm)</th><th>H₂ (ppm)</th><th>Temperatura (°C)</th><th>Umidade (%)</th><th>Pressão (bar)</th></tr></thead><tbody>{[...historyReadings].reverse().map((item, index) => <tr key={`${item.dateTime}-${index}`}><td>{item.time}</td><td>{item.o2.toLocaleString("pt-BR")}</td><td>{item.h2.toLocaleString("pt-BR")}</td><td>{item.temp.toFixed(1)}</td><td>{item.humidity.toFixed(1)}</td><td>{item.pressure.toFixed(2)}</td></tr>)}</tbody></table></div>
+        <h3 className="history-table-title">Médias móveis ({historyAverages.length})</h3>
+        <div className="table-scroll"><table><thead><tr><th>Horário</th><th>O₂ médio (ppm)</th><th>H₂ médio (ppm)</th><th>Temperatura (°C)</th><th>Umidade (%)</th><th>Pressão (bar)</th></tr></thead><tbody>{[...historyAverages].reverse().map((item, index) => <tr key={`average-${item.dateTime}-${index}`}><td>{item.time}</td><td>{item.o2.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}</td><td>{item.h2.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}</td><td>{item.temp.toFixed(1)}</td><td>{item.humidity.toFixed(1)}</td><td>{item.pressure.toFixed(2)}</td></tr>)}</tbody></table></div>
+      </section>}
       <footer>GasMix Monitoring <span>·</span> Dados recebidos do backend</footer>
     </main>
   </div>;
