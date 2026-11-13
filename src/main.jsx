@@ -300,15 +300,15 @@ function App() {
     const difference = current[key] - previous[key];
     return `${difference >= 0 ? "+" : ""}${difference.toFixed(digits)}`;
   };
-  const csv = useMemo(() => {
-    const headers = "Tipo,Timestamp,O2_Conc,H2_Conc,Ambient_Temp,Ambient_Hum,Ambient_Pressure";
-    const row = (type, item) => [type, item.dateTime, item.o2, item.h2, item.temp, item.humidity, item.pressure].join(",");
-    return [
-      headers,
-      ...historyReadings.map((item) => row("Leitura", item)),
-      ...historyAverages.map((item) => row("Média móvel", item)),
-    ].join("\n");
+  const csvData = useMemo(() => {
+    const headers = "Timestamp,O2_Conc,H2_Conc,Ambient_Temp,Ambient_Hum,Ambient_Pressure";
+    const row = (item) => [item.dateTime, item.o2, item.h2, item.temp, item.humidity, item.pressure].join(",");
+    return {
+      readings: [headers, ...historyReadings.map(row)].join("\n"),
+      averages: [headers, ...historyAverages.map(row)].join("\n"),
+    };
   }, [historyReadings, historyAverages]);
+  const downloadTimestamp = new Date().toISOString().replace("T", "_").replace(/:/g, "").slice(0, 15);
 
   if (!authenticated) return <Login onLogin={() => setAuthenticated(true)} />;
 
@@ -356,7 +356,10 @@ function App() {
       {activeTab === "history" && <section className="panel history-panel">
         <div className="panel-heading">
           <div><h2>Histórico de leituras</h2><p>{historyMode === "realtime" ? "Últimas 24 horas, atualizado em tempo real" : "Período filtrado no banco de dados"}</p></div>
-          <a className="button secondary" href={`data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`} download="leituras-gasmix.csv">↓ Baixar CSV</a>
+          <div className="history-downloads">
+            <a className="button secondary" href={`data:text/csv;charset=utf-8,${encodeURIComponent(csvData.readings)}`} download={`leitura_${downloadTimestamp}.csv`}>↓ Leituras CSV</a>
+            <a className="button secondary" href={`data:text/csv;charset=utf-8,${encodeURIComponent(csvData.averages)}`} download={`Media_${downloadTimestamp}.csv`}>↓ Médias CSV</a>
+          </div>
         </div>
         <div className="history-toolbar">
           <label className="history-mode">Visualização
