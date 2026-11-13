@@ -161,7 +161,7 @@ function App() {
       const date = new Date(payload.date_time);
       setReadings((items) => [...items.slice(-7), next]);
       if (historyMode === "realtime") {
-        setHistoryReadings((items) => [...items, next]);
+        setHistoryReadings((items) => [...items, next].slice(-100));
       }
       setLastUpdated(date.toLocaleTimeString("pt-BR"));
     };
@@ -223,7 +223,7 @@ function App() {
   }, [apiBase, connected]);
 
   useEffect(() => {
-    if (!connected) return undefined;
+    if (!connected || historyMode !== "realtime") return undefined;
     let active = true;
     const loadReadings = () => {
       const end = new Date();
@@ -238,7 +238,7 @@ function App() {
           if (!active) return;
           const mapped = items.map(mapReading);
           setReadings(mapped.slice(-8));
-          setHistoryReadings(mapped);
+          setHistoryReadings(historyMode === "realtime" ? mapped.slice(-100) : mapped);
         })
         .catch(() => {
           if (active) setConnectionError("Não foi possível carregar as leituras do banco.");
@@ -250,7 +250,7 @@ function App() {
       active = false;
       window.clearInterval(timer);
     };
-  }, [apiBase, connected]);
+  }, [apiBase, connected, historyMode]);
 
   async function applyHistoryFilter(event) {
     event.preventDefault();
