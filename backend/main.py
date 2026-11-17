@@ -8,7 +8,6 @@ from datetime import datetime
 from typing import List
 
 import asyncpg
-from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -18,7 +17,6 @@ from .arduino_handler import ArduinoHandler
 from .calculo_concentracao import calcular_concentracao_h2, calcular_concentracao_o2
 
 logger = logging.getLogger(__name__)
-load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 
@@ -93,7 +91,7 @@ async def ler_arduino_continuamente(app: FastAPI, requested_port: str | None = N
         logger.warning("Arduino não detectado; API iniciada sem coleta automática.")
         return
     app.state.arduino_status["port"] = port
-    if not await asyncio.to_thread(connection.connect, port):
+    if not connection.connect(port):
         app.state.arduino_status["error"] = f"Não foi possível abrir a porta {port}"
         logger.warning("Não foi possível abrir a porta serial %s.", port)
         return
@@ -104,7 +102,7 @@ async def ler_arduino_continuamente(app: FastAPI, requested_port: str | None = N
     try:
         while True:
             if handler.is_connected():
-                raw = await asyncio.to_thread(handler.read_sensor_data)
+                raw = handler.read_sensor_data()
                 if raw:
                     try:
                         record = handler.get_dataframe_format(raw)
@@ -136,7 +134,7 @@ async def ler_arduino_continuamente(app: FastAPI, requested_port: str | None = N
         raise
     finally:
         app.state.arduino_status["connected"] = False
-        await asyncio.to_thread(connection.disconnect)
+        connection.disconnect()
 
 
 @asynccontextmanager
@@ -162,7 +160,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Monitoramento de Gás", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(","),
+    allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:5173").split(","),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -195,10 +193,7 @@ async def connect_arduino(selection: ArduinoPortSelection) -> dict[str, object]:
         app.state.reader_task = asyncio.create_task(
             ler_arduino_continuamente(app, selection.port)
         )
-        for _ in range(30):
-            await asyncio.sleep(0.1)
-            if app.state.arduino_status["connected"] or app.state.arduino_status["error"]:
-                break
+        await asyncio.sleep(0.1)
     return app.state.arduino_status
 
 
