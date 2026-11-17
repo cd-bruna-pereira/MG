@@ -36,19 +36,19 @@ function LineChart({ data, dataKey, color, label, unit = "ppm" }) {
         }]}
         layout={{
           autosize: true,
-          height: 280,
-          margin: { l: 78, r: 20, t: 42, b: 68 },
+          height: 360,
+          margin: { l: 90, r: 30, t: 48, b: 72 },
           paper_bgcolor: "rgba(0,0,0,0)",
           plot_bgcolor: "rgba(0,0,0,0)",
           font: { color: "#91a5ba", size: 12 },
           showlegend: true,
           legend: { orientation: "h", x: 1, y: 1.18, xanchor: "right", yanchor: "top", bgcolor: "rgba(0,0,0,0)" },
-          xaxis: { title: { text: "Data e horário", standoff: 14 }, type: "date", gridcolor: "rgba(145,165,186,.15)", tickformat: "%d/%m %H:%M", nticks: 6, tickangle: 0, fixedrange: true },
-          yaxis: { title: { text: `Quantidade (${unit})`, standoff: 12 }, gridcolor: "rgba(145,165,186,.15)", nticks: 6, tickformat: ",~s", automargin: true, fixedrange: true },
+          xaxis: { title: { text: "Data e horário", standoff: 14 }, type: "date", gridcolor: "rgba(145,165,186,.15)", tickformat: "%d/%m %H:%M", nticks: 8, tickangle: 0, fixedrange: false },
+          yaxis: { title: { text: `Quantidade (${unit})`, standoff: 12 }, gridcolor: "rgba(145,165,186,.15)", nticks: 8, tickformat: ",~s", automargin: true, fixedrange: false },
         }}
-        config={{ responsive: true, displaylogo: false, displayModeBar: false, scrollZoom: false }}
+        config={{ responsive: true, displaylogo: false, displayModeBar: true, scrollZoom: true }}
         useResizeHandler
-        style={{ width: "100%", height: "280px" }}
+        style={{ width: "100%", height: "360px" }}
       />
     </div>
   );
