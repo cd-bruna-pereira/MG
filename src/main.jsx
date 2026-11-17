@@ -36,19 +36,19 @@ function LineChart({ data, dataKey, color, label, unit = "ppm" }) {
         }]}
         layout={{
           autosize: true,
-          height: 300,
-          margin: { l: 65, r: 75, t: 20, b: 60 },
+          height: 280,
+          margin: { l: 78, r: 20, t: 42, b: 68 },
           paper_bgcolor: "rgba(0,0,0,0)",
           plot_bgcolor: "rgba(0,0,0,0)",
-          font: { color: "#91a5ba", size: 11 },
+          font: { color: "#91a5ba", size: 12 },
           showlegend: true,
-          legend: { orientation: "v", x: 1.02, y: 1, xanchor: "left", bgcolor: "rgba(0,0,0,0)" },
-          xaxis: { title: { text: "Data e horário" }, type: "date", gridcolor: "rgba(145,165,186,.15)", tickformat: "%d/%m %H:%M" },
-          yaxis: { title: { text: `Quantidade (${unit})` }, gridcolor: "rgba(145,165,186,.15)", rangemode: "tozero" },
+          legend: { orientation: "h", x: 1, y: 1.18, xanchor: "right", yanchor: "top", bgcolor: "rgba(0,0,0,0)" },
+          xaxis: { title: { text: "Data e horário", standoff: 14 }, type: "date", gridcolor: "rgba(145,165,186,.15)", tickformat: "%d/%m %H:%M", nticks: 6, tickangle: 0, fixedrange: true },
+          yaxis: { title: { text: `Quantidade (${unit})`, standoff: 12 }, gridcolor: "rgba(145,165,186,.15)", nticks: 6, tickformat: ",~s", automargin: true, fixedrange: true },
         }}
-        config={{ responsive: true, displaylogo: false, modeBarButtonsToRemove: ["lasso2d", "select2d"] }}
+        config={{ responsive: true, displaylogo: false, displayModeBar: false, scrollZoom: false }}
         useResizeHandler
-        style={{ width: "100%", height: "300px" }}
+        style={{ width: "100%", height: "280px" }}
       />
     </div>
   );
