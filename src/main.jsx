@@ -15,7 +15,7 @@ function formatPpm(value) {
   return `${(value / 1000).toFixed(0)}k`;
 }
 
-function LineChart({ data, dataKey, color, label, unit = "ppm", isLight = false }) {
+function LineChart({ data, dataKey, color, label, unit = "ppm", theme = "light" }) {
   const visibleData = data.slice(-100);
   if (!visibleData.length) {
     return <div className="chart-wrap"><div className="chart-legend"><span className="legend-dot" style={{ background: color }} />{label}<span className="chart-unit">{unit}</span></div><p>Nenhuma leitura disponível.</p></div>;
@@ -32,19 +32,19 @@ function LineChart({ data, dataKey, color, label, unit = "ppm", isLight = false 
           name: label,
           line: { color, width: 3 },
           marker: { color, size: 5 },
-          hovertemplate: "%{x|%d/%m/%Y %H:%M:%S}<br>%{y:,.2f} " + unit + "<extra>" + label + "</extra>",
+          hovertemplate: "%{x|%d/%m %H:%M:%S}<br>%{y:,.2f} " + unit + "<extra>" + label + "</extra>",
         }]}
         layout={{
           autosize: true,
           height: 360,
           margin: { l: 90, r: 30, t: 48, b: 72 },
           paper_bgcolor: "rgba(0,0,0,0)",
-          plot_bgcolor: "rgba(0,0,0,0)",
-          font: { color: isLight ? "#40566b" : "#91a5ba", size: 12 },
+          plot_bgcolor: theme === "light" ? "#ffffff" : "rgba(0,0,0,0)",
+          font: { color: theme === "light" ? "#334e68" : "#b6c5d5", size: 12 },
           showlegend: true,
-          legend: { orientation: "h", x: 1, y: 1.18, xanchor: "right", yanchor: "top", font: { color: isLight ? "#40566b" : "#91a5ba" }, bgcolor: "rgba(0,0,0,0)" },
-          xaxis: { title: { text: "Data e horário", standoff: 14, font: { color: isLight ? "#40566b" : "#91a5ba" } }, type: "date", color: isLight ? "#40566b" : "#91a5ba", gridcolor: isLight ? "rgba(64,86,107,.18)" : "rgba(145,165,186,.15)", tickformat: "%d/%m/%Y %H:%M:%S", nticks: 8, tickangle: 0, fixedrange: false },
-          yaxis: { title: { text: `Quantidade (${unit})`, standoff: 12, font: { color: isLight ? "#40566b" : "#91a5ba" } }, color: isLight ? "#40566b" : "#91a5ba", gridcolor: isLight ? "rgba(64,86,107,.18)" : "rgba(145,165,186,.15)", nticks: 8, tickformat: ",~s", automargin: true, fixedrange: false },
+          legend: { orientation: "h", x: 1, y: 1.18, xanchor: "right", yanchor: "top", bgcolor: "rgba(255,255,255,0.92)", font: { color: theme === "light" ? "#334e68" : "#b6c5d5" } },
+          xaxis: { title: { text: "Dia/Mês - horário", standoff: 14 }, type: "date", gridcolor: theme === "light" ? "#dce6ef" : "rgba(145,165,186,.15)", tickcolor: theme === "light" ? "#60758a" : "#91a5ba", tickfont: { color: theme === "light" ? "#334e68" : "#b6c5d5" }, tickformat: "%d/%m %H:%M", nticks: 8, tickangle: 0, fixedrange: false },
+          yaxis: { title: { text: `Quantidade (${unit})`, standoff: 12 }, gridcolor: theme === "light" ? "#dce6ef" : "rgba(145,165,186,.15)", tickcolor: theme === "light" ? "#60758a" : "#91a5ba", tickfont: { color: theme === "light" ? "#334e68" : "#b6c5d5" }, nticks: 8, tickformat: ",~s", automargin: true, fixedrange: false },
         }}
         config={{ responsive: true, displaylogo: false, displayModeBar: true, scrollZoom: true }}
         useResizeHandler
@@ -56,22 +56,28 @@ function LineChart({ data, dataKey, color, label, unit = "ppm", isLight = false 
 
 function movingAverageRows(data, windowMinutes) {
   const windowMilliseconds = Number(windowMinutes) * 60 * 1000;
-  const sortedData = [...data]
-    .sort((a, b) => new Date(a.dateTime).getTime() - new Date(b.dateTime).getTime())
-    .slice(-100);
+  const buckets = new Map();
+  const sortedData = [...data].sort((a, b) => new Date(a.dateTime).getTime() - new Date(b.dateTime).getTime());
+  const firstTime = sortedData.length ? new Date(sortedData[0].dateTime).getTime() : NaN;
 
-  return sortedData.map((item) => {
+  sortedData.forEach((item) => {
     const itemTime = new Date(item.dateTime).getTime();
-    const window = sortedData.filter((entry) => {
-      const entryTime = new Date(entry.dateTime).getTime();
-      return !Number.isNaN(itemTime) && !Number.isNaN(entryTime)
-        && entryTime <= itemTime
-        && itemTime - entryTime <= windowMilliseconds;
-    });
-    const average = (key) => window.reduce((total, entry) => total + entry[key], 0) / window.length;
+    if (Number.isNaN(itemTime) || Number.isNaN(firstTime) || windowMilliseconds <= 0) return;
 
+    const elapsedMilliseconds = itemTime - firstTime;
+    const bucketStart = firstTime + Math.floor(elapsedMilliseconds / windowMilliseconds) * windowMilliseconds;
+    if (!buckets.has(bucketStart)) {
+      buckets.set(bucketStart, []);
+    }
+    buckets.get(bucketStart).push(item);
+  });
+
+  return [...buckets.entries()].map(([bucketStart, items]) => {
+    const dateTime = new Date(bucketStart).toISOString();
+    const average = (key) => items.reduce((total, item) => total + item[key], 0) / items.length;
     return {
-      ...item,
+      dateTime,
+      time: new Date(dateTime).toLocaleString("pt-BR"),
       o2: average("o2"),
       h2: average("h2"),
       temp: average("temp"),
@@ -364,12 +370,12 @@ function App() {
       </div>
       <div className="tabs">{[["concentration", "Concentração O₂ / H₂"], ["environment", "Condições ambientais"], ["history", "Histórico"]].map(([key, label]) => <button key={key} className={activeTab === key ? "selected" : ""} onClick={() => setActiveTab(key)}>{label}</button>)}</div>
       {activeTab === "concentration" && <section className="charts-grid concentration-charts">
-        <article className="panel"><div className="panel-heading"><div><h2>O₂ em tempo real</h2><p>Leituras individuais dos sensores</p></div></div><LineChart data={readings} dataKey="o2" isLight={theme === "light"} color={gasConfig.O2.color} label="O₂ · tempo real" /></article>
-        <article className="panel"><div className="panel-heading"><div><h2>O₂ por média</h2><p>Média móvel de {interval} minuto{interval > 1 ? "s" : ""}</p></div></div><LineChart data={averageReadings.o2} isLight={theme === "light"} dataKey="o2" color={gasConfig.O2.color} label="O₂ · média" /></article>
-        <article className="panel"><div className="panel-heading"><div><h2>H₂ em tempo real</h2><p>Leituras individuais dos sensores</p></div></div><LineChart data={readings} dataKey="h2" isLight={theme === "light"} color={gasConfig.H2.color} label="H₂ · tempo real" /></article>
-        <article className="panel"><div className="panel-heading"><div><h2>H₂ por média</h2><p>Média móvel de {interval} minuto{interval > 1 ? "s" : ""}</p></div></div><LineChart data={averageReadings.h2} isLight={theme === "light"} dataKey="h2" color={gasConfig.H2.color} label="H₂ · média" /></article>
+        <article className="panel"><div className="panel-heading"><div><h2>O₂ em tempo real</h2><p>Leituras individuais dos sensores</p></div></div><LineChart theme={theme} data={readings} dataKey="o2" color={gasConfig.O2.color} label="O₂ · tempo real" /></article>
+        <article className="panel"><div className="panel-heading"><div><h2>O₂ por média</h2><p>Média móvel de {interval} minuto{interval > 1 ? "s" : ""}</p></div></div><LineChart theme={theme} data={averageReadings.o2} dataKey="o2" color={gasConfig.O2.color} label="O₂ · média" /></article>
+        <article className="panel"><div className="panel-heading"><div><h2>H₂ em tempo real</h2><p>Leituras individuais dos sensores</p></div></div><LineChart theme={theme} data={readings} dataKey="h2" color={gasConfig.H2.color} label="H₂ · tempo real" /></article>
+        <article className="panel"><div className="panel-heading"><div><h2>H₂ por média</h2><p>Média móvel de {interval} minuto{interval > 1 ? "s" : ""}</p></div></div><LineChart theme={theme} data={averageReadings.h2} dataKey="h2" color={gasConfig.H2.color} label="H₂ · média" /></article>
       </section>}
-      {activeTab === "environment" && <section className="charts-grid"><article className="panel"><div className="panel-heading"><div><h2>Temperatura ambiente</h2><p>Leituras brutas em tempo real</p></div></div><LineChart data={readings} dataKey="temp" isLight={theme === "light"} color="#ff6f72" label="Temperatura" unit="°C" /></article><article className="panel"><div className="panel-heading"><div><h2>Umidade relativa</h2><p>Leituras brutas em tempo real</p></div></div><LineChart data={readings} dataKey="humidity" isLight={theme === "light"} color="#60a5fa" label="Umidade" unit="%" /></article><article className="panel"><div className="panel-heading"><div><h2>Pressão atmosférica</h2><p>Leituras brutas em tempo real</p></div></div><LineChart data={readings} dataKey="pressure" isLight={theme === "light"} color="#bb8cff" label="Pressão" unit="bar" /></article></section>}
+      {activeTab === "environment" && <section className="charts-grid"><article className="panel"><div className="panel-heading"><div><h2>Temperatura ambiente</h2><p>Leituras brutas em tempo real</p></div></div><LineChart theme={theme} data={readings} dataKey="temp" color="#ff6f72" label="Temperatura" unit="°C" /></article><article className="panel"><div className="panel-heading"><div><h2>Umidade relativa</h2><p>Leituras brutas em tempo real</p></div></div><LineChart theme={theme} data={readings} dataKey="humidity" color="#60a5fa" label="Umidade" unit="%" /></article><article className="panel"><div className="panel-heading"><div><h2>Pressão atmosférica</h2><p>Leituras brutas em tempo real</p></div></div><LineChart theme={theme} data={readings} dataKey="pressure" color="#bb8cff" label="Pressão" unit="bar" /></article></section>}
       {activeTab === "history" && <section className="panel history-panel">
         <div className="panel-heading">
           <div><h2>Histórico de leituras</h2><p>{historyMode === "realtime" ? "Últimas 24 horas, atualizado em tempo real" : "Período filtrado no banco de dados"}</p></div>
@@ -397,7 +403,7 @@ function App() {
         <h3 className="history-table-title">Médias por janela ({historyAverages.length})</h3>
         <div className="table-scroll"><table><thead><tr><th>Horário</th><th>O₂ médio (ppm)</th><th>H₂ médio (ppm)</th><th>Temperatura (°C)</th><th>Umidade (%)</th><th>Pressão (bar)</th></tr></thead><tbody>{[...historyAverages].reverse().map((item, index) => <tr key={`average-${item.dateTime}-${index}`}><td>{item.time}</td><td>{item.o2.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}</td><td>{item.h2.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}</td><td>{item.temp.toFixed(1)}</td><td>{item.humidity.toFixed(1)}</td><td>{item.pressure.toFixed(2)}</td></tr>)}</tbody></table></div>
       </section>}
-      <footer>GasMix Monitoring <span>·</span> Dados recebidos do backend</footer>
+      <footer>Monitoring <span>·</span> Dados recebidos do backend</footer>
     </main>
   </div>;
 }
