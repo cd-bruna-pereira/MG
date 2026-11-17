@@ -45,19 +45,30 @@ function LineChart({ data, dataKey, color, label, unit = "ppm" }) {
 
 function movingAverageRows(data, windowMinutes) {
   const windowMilliseconds = Number(windowMinutes) * 60 * 1000;
-  return data.map((item, index) => {
+  const buckets = new Map();
+
+  [...data].sort((a, b) => new Date(a.dateTime).getTime() - new Date(b.dateTime).getTime()).forEach((item) => {
     const itemTime = new Date(item.dateTime).getTime();
-    const window = data.slice(0, index + 1).filter((entry) => {
-      const entryTime = new Date(entry.dateTime).getTime();
-      return Number.isNaN(itemTime) || Number.isNaN(entryTime) || itemTime - entryTime <= windowMilliseconds;
-    });
+    if (Number.isNaN(itemTime) || windowMilliseconds <= 0) return;
+
+    const bucketStart = Math.floor(itemTime / windowMilliseconds) * windowMilliseconds;
+    if (!buckets.has(bucketStart)) {
+      buckets.set(bucketStart, []);
+    }
+    buckets.get(bucketStart).push(item);
+  });
+
+  return [...buckets.entries()].map(([bucketStart, items]) => {
+    const dateTime = new Date(bucketStart).toISOString();
+    const average = (key) => items.reduce((total, item) => total + item[key], 0) / items.length;
     return {
-      ...item,
-      o2: window.reduce((total, entry) => total + entry.o2, 0) / window.length,
-      h2: window.reduce((total, entry) => total + entry.h2, 0) / window.length,
-      temp: window.reduce((total, entry) => total + entry.temp, 0) / window.length,
-      humidity: window.reduce((total, entry) => total + entry.humidity, 0) / window.length,
-      pressure: window.reduce((total, entry) => total + entry.pressure, 0) / window.length,
+      dateTime,
+      time: new Date(dateTime).toLocaleString("pt-BR"),
+      o2: average("o2"),
+      h2: average("h2"),
+      temp: average("temp"),
+      humidity: average("humidity"),
+      pressure: average("pressure"),
     };
   });
 }
@@ -156,7 +167,7 @@ function App() {
       const date = new Date(payload.date_time);
       setReadings((items) => [...items.slice(-7), next]);
       if (historyMode === "realtime") {
-        setHistoryReadings((items) => [...items, next].slice(-100));
+        setHistoryReadings((items) => [...items, next]);
       }
       setLastUpdated(date.toLocaleTimeString("pt-BR"));
     };
@@ -233,7 +244,7 @@ function App() {
           if (!active) return;
           const mapped = items.map(mapReading);
           setReadings(mapped.slice(-8));
-          setHistoryReadings(historyMode === "realtime" ? mapped.slice(-100) : mapped);
+          setHistoryReadings(mapped);
         })
         .catch(() => {
           if (active) setConnectionError("Não foi possível carregar as leituras do banco.");
@@ -375,7 +386,7 @@ function App() {
         {connectionError && <p className="form-error">{connectionError}</p>}
         <h3 className="history-table-title">Leituras individuais ({historyReadings.length})</h3>
         <div className="table-scroll"><table><thead><tr><th>Horário</th><th>O₂ (ppm)</th><th>H₂ (ppm)</th><th>Temperatura (°C)</th><th>Umidade (%)</th><th>Pressão (bar)</th></tr></thead><tbody>{[...historyReadings].reverse().map((item, index) => <tr key={`${item.dateTime}-${index}`}><td>{item.time}</td><td>{item.o2.toLocaleString("pt-BR")}</td><td>{item.h2.toLocaleString("pt-BR")}</td><td>{item.temp.toFixed(1)}</td><td>{item.humidity.toFixed(1)}</td><td>{item.pressure.toFixed(2)}</td></tr>)}</tbody></table></div>
-        <h3 className="history-table-title">Médias móveis ({historyAverages.length})</h3>
+        <h3 className="history-table-title">Médias por janela ({historyAverages.length})</h3>
         <div className="table-scroll"><table><thead><tr><th>Horário</th><th>O₂ médio (ppm)</th><th>H₂ médio (ppm)</th><th>Temperatura (°C)</th><th>Umidade (%)</th><th>Pressão (bar)</th></tr></thead><tbody>{[...historyAverages].reverse().map((item, index) => <tr key={`average-${item.dateTime}-${index}`}><td>{item.time}</td><td>{item.o2.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}</td><td>{item.h2.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}</td><td>{item.temp.toFixed(1)}</td><td>{item.humidity.toFixed(1)}</td><td>{item.pressure.toFixed(2)}</td></tr>)}</tbody></table></div>
       </section>}
       <footer>GasMix Monitoring <span>·</span> Dados recebidos do backend</footer>
