@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
+import createPlotlyComponent from "react-plotly.js/factory";
+import Plotly from "plotly.js-dist-min";
 import "./styles.css";
+
+const Plot = createPlotlyComponent(Plotly);
 
 const gasConfig = {
   O2: { label: "Oxigênio", color: "#35c8f4", tint: "cyan" },
@@ -12,33 +16,40 @@ function formatPpm(value) {
 }
 
 function LineChart({ data, dataKey, color, label, unit = "ppm" }) {
-  const width = 720;
-  const height = 220;
-  const values = data.map((item) => item[dataKey]);
-  if (!data.length) {
+  const visibleData = data.slice(-100);
+  if (!visibleData.length) {
     return <div className="chart-wrap"><div className="chart-legend"><span className="legend-dot" style={{ background: color }} />{label}<span className="chart-unit">{unit}</span></div><p>Nenhuma leitura disponível.</p></div>;
   }
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = max - min || 1;
-  const points = data.map((item, index) => {
-    const x = 26 + (index * (width - 52)) / Math.max(data.length - 1, 1);
-    const y = height - 32 - ((item[dataKey] - min) / range) * (height - 72);
-    return `${x},${y}`;
-  }).join(" ");
 
   return (
     <div className="chart-wrap">
-      <div className="chart-legend"><span className="legend-dot" style={{ background: color }} />{label}<span className="chart-unit">{unit}</span></div>
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`Gráfico de ${label}`}>
-        {[0, 1, 2, 3].map((line) => <line key={line} x1="26" x2={width - 26} y1={32 + line * 48} y2={32 + line * 48} className="grid-line" />)}
-        <polyline points={points} fill="none" stroke={color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-        {data.map((item, index) => {
-          const [x, y] = points.split(" ")[index].split(",");
-          return <circle key={`${item.time}-${index}`} cx={x} cy={y} r="4" fill="#101c2d" stroke={color} strokeWidth="2" />;
-        })}
-      </svg>
-      <div className="chart-labels">{data.map((item, index) => <span key={`${item.time}-${index}`}>{item.time}</span>)}</div>
+      <Plot
+        data={[{
+          x: visibleData.map((item) => item.dateTime),
+          y: visibleData.map((item) => item[dataKey]),
+          type: "scatter",
+          mode: "lines+markers",
+          name: label,
+          line: { color, width: 3 },
+          marker: { color, size: 5 },
+          hovertemplate: "%{x|%d/%m/%Y %H:%M:%S}<br>%{y:,.2f} " + unit + "<extra>" + label + "</extra>",
+        }]}
+        layout={{
+          autosize: true,
+          height: 220,
+          margin: { l: 70, r: 55, t: 20, b: 55 },
+          paper_bgcolor: "rgba(0,0,0,0)",
+          plot_bgcolor: "rgba(0,0,0,0)",
+          font: { color: "#91a5ba", size: 11 },
+          showlegend: true,
+          legend: { orientation: "v", x: 1.02, y: 1, xanchor: "left", bgcolor: "rgba(0,0,0,0)" },
+          xaxis: { title: { text: "Data e horário" }, type: "date", gridcolor: "rgba(145,165,186,.15)", tickformat: "%d/%m %H:%M" },
+          yaxis: { title: { text: `Quantidade (${unit})` }, gridcolor: "rgba(145,165,186,.15)", rangemode: "tozero" },
+        }}
+        config={{ responsive: true, displaylogo: false, modeBarButtonsToRemove: ["lasso2d", "select2d"] }}
+        useResizeHandler
+        style={{ width: "100%", height: "220px" }}
+      />
     </div>
   );
 }
@@ -168,9 +179,9 @@ function App() {
       const payload = JSON.parse(event.data);
       const next = mapReading(payload);
       const date = new Date(payload.date_time);
-      setReadings((items) => [...items.slice(-7), next]);
+      setReadings((items) => [...items, next].slice(-100));
       if (historyMode === "realtime") {
-        setHistoryReadings((items) => [...items, next]);
+        setHistoryReadings((items) => [...items, next].slice(-100));
       }
       setLastUpdated(date.toLocaleTimeString("pt-BR"));
     };
@@ -246,8 +257,8 @@ function App() {
         .then((items) => {
           if (!active) return;
           const mapped = items.map(mapReading);
-          setReadings(mapped.slice(-8));
-          setHistoryReadings(mapped);
+          setReadings(mapped.slice(-100));
+          setHistoryReadings(mapped.slice(-100));
         })
         .catch(() => {
           if (active) setConnectionError("Não foi possível carregar as leituras do banco.");
@@ -300,7 +311,7 @@ function App() {
   const current = readings[readings.length - 1];
   const previous = readings[readings.length - 2];
   const historyAverages = useMemo(
-    () => movingAverageRows(historyReadings, interval),
+    () => movingAverageRows(historyReadings, interval).slice(-100),
     [historyReadings, interval],
   );
   const averageReadings = useMemo(() => ({
@@ -388,7 +399,7 @@ function App() {
         </div>
         {connectionError && <p className="form-error">{connectionError}</p>}
         <h3 className="history-table-title">Leituras individuais ({historyReadings.length})</h3>
-        <div className="table-scroll"><table><thead><tr><th>Horário</th><th>O₂ (ppm)</th><th>H₂ (ppm)</th><th>Temperatura (°C)</th><th>Umidade (%)</th><th>Pressão (bar)</th></tr></thead><tbody>{[...historyReadings].reverse().map((item, index) => <tr key={`${item.dateTime}-${index}`}><td>{item.time}</td><td>{item.o2.toLocaleString("pt-BR")}</td><td>{item.h2.toLocaleString("pt-BR")}</td><td>{item.temp.toFixed(1)}</td><td>{item.humidity.toFixed(1)}</td><td>{item.pressure.toFixed(2)}</td></tr>)}</tbody></table></div>
+        <div className="table-scroll"><table><thead><tr><th>Horário</th><th>O₂ (ppm)</th><th>H₂ (ppm)</th><th>Temperatura (°C)</th><th>Umidade (%)</th><th>Pressão (bar)</th></tr></thead><tbody>{[...historyReadings].slice(-100).reverse().map((item, index) => <tr key={`${item.dateTime}-${index}`}><td>{item.time}</td><td>{item.o2.toLocaleString("pt-BR")}</td><td>{item.h2.toLocaleString("pt-BR")}</td><td>{item.temp.toFixed(1)}</td><td>{item.humidity.toFixed(1)}</td><td>{item.pressure.toFixed(2)}</td></tr>)}</tbody></table></div>
         <h3 className="history-table-title">Médias por janela ({historyAverages.length})</h3>
         <div className="table-scroll"><table><thead><tr><th>Horário</th><th>O₂ médio (ppm)</th><th>H₂ médio (ppm)</th><th>Temperatura (°C)</th><th>Umidade (%)</th><th>Pressão (bar)</th></tr></thead><tbody>{[...historyAverages].reverse().map((item, index) => <tr key={`average-${item.dateTime}-${index}`}><td>{item.time}</td><td>{item.o2.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}</td><td>{item.h2.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}</td><td>{item.temp.toFixed(1)}</td><td>{item.humidity.toFixed(1)}</td><td>{item.pressure.toFixed(2)}</td></tr>)}</tbody></table></div>
       </section>}
