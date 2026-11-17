@@ -46,12 +46,15 @@ function LineChart({ data, dataKey, color, label, unit = "ppm" }) {
 function movingAverageRows(data, windowMinutes) {
   const windowMilliseconds = Number(windowMinutes) * 60 * 1000;
   const buckets = new Map();
+  const sortedData = [...data].sort((a, b) => new Date(a.dateTime).getTime() - new Date(b.dateTime).getTime());
+  const firstTime = sortedData.length ? new Date(sortedData[0].dateTime).getTime() : NaN;
 
-  [...data].sort((a, b) => new Date(a.dateTime).getTime() - new Date(b.dateTime).getTime()).forEach((item) => {
+  sortedData.forEach((item) => {
     const itemTime = new Date(item.dateTime).getTime();
-    if (Number.isNaN(itemTime) || windowMilliseconds <= 0) return;
+    if (Number.isNaN(itemTime) || Number.isNaN(firstTime) || windowMilliseconds <= 0) return;
 
-    const bucketStart = Math.floor(itemTime / windowMilliseconds) * windowMilliseconds;
+    const elapsedMilliseconds = itemTime - firstTime;
+    const bucketStart = firstTime + Math.floor(elapsedMilliseconds / windowMilliseconds) * windowMilliseconds;
     if (!buckets.has(bucketStart)) {
       buckets.set(bucketStart, []);
     }
