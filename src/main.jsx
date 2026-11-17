@@ -140,9 +140,9 @@ function Metric({ icon, label, value, detail, tone }) {
 }
 
 function App() {
-  const apiBase = import.meta.env.VITE_API_URL || "http://localhost:8000";
+  const apiBase = import.meta.env.VITE_API_URL || `${window.location.protocol}//${window.location.hostname}:8000`;
   const [authenticated, setAuthenticated] = useState(false);
-  const [theme, setTheme] = useState(() => localStorage.getItem("gasmix-theme") || "dark");
+  const [theme, setTheme] = useState(() => localStorage.getItem("gasmix-theme") || "light");
   const [connected, setConnected] = useState(false);
   const [arduinoStatus, setArduinoStatus] = useState({ connected: false, last_reading: null, error: null });
   const [availablePorts, setAvailablePorts] = useState([]);
@@ -213,6 +213,9 @@ function App() {
       const status = await response.json();
       if (!response.ok) throw new Error(status.detail || "Não foi possível conectar.");
       setArduinoStatus(status);
+      if (!status.connected) {
+        throw new Error(status.error || "Não foi possível conectar ao Arduino.");
+      }
       setConnected(true);
     } catch (error) {
       setConnectionError(error.message);
