@@ -5,6 +5,7 @@ import math
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import List
 
 import asyncpg
@@ -18,6 +19,13 @@ from .calculo_concentracao import calcular_concentracao_h2, calcular_concentraca
 
 logger = logging.getLogger(__name__)
 DATABASE_URL = os.getenv("DATABASE_URL", "")
+SAO_PAULO = ZoneInfo("America/Sao_Paulo")
+
+
+def hora_local_naive(value: datetime) -> datetime:
+    if value.tzinfo is not None:
+        return value.astimezone(SAO_PAULO).replace(tzinfo=None)
+    return value
 
 
 class LeituraGas(BaseModel):
@@ -108,7 +116,7 @@ async def ler_arduino_continuamente(app: FastAPI, requested_port: str | None = N
                         record = handler.get_dataframe_format(raw)
                         h2 = calcular_concentracao_h2(record["H2_Raw"])
                         o2 = calcular_concentracao_o2(h2)
-                        now = datetime.now()
+                        now = datetime.now(SAO_PAULO).replace(tzinfo=None)
                         values = (now, h2, o2, record["Ambient_Temp"], record["Ambient_Hum"], record["Ambient_Pressure"])
                         if not all(math.isfinite(float(value)) for value in values[1:]):
                             app.state.arduino_status["error"] = "Leitura recebida sem todos os valores dos sensores"
@@ -226,7 +234,7 @@ async def registrar_leitura_manual(leitura: LeituraGas) -> dict[str, str]:
         async with app.state.db.acquire() as db:
             await db.execute(
                 "INSERT INTO leituras_gas (date_time, concentracao_h2, concentracao_o2, temperatura, umidade, pressao) VALUES ($1, $2, $3, $4, $5, $6)",
-                leitura.date_time, leitura.concentracao_h2, leitura.concentracao_o2,
+                hora_local_naive(leitura.date_time), leitura.concentracao_h2, leitura.concentracao_o2,
                 leitura.temperatura, leitura.umidade, leitura.pressao,
             )
     except asyncpg.UniqueViolationError as exc:
@@ -240,13 +248,15 @@ async def consultar_leituras(
     fim: datetime = Query(...),
     limite: int = Query(100, ge=1, le=100),
 ) -> list[LeituraGas]:
-    if inicio > fim:
+    inicio_local = hora_local_naive(inicio)
+    fim_local = hora_local_naive(fim)
+    if inicio_local > fim_local:
         raise HTTPException(status_code=400, detail="O início deve ser anterior ao fim.")
     async with app.state.db.acquire() as db:
         registros = await db.fetch(
             "SELECT date_time, concentracao_h2, concentracao_o2, temperatura, umidade, pressao FROM leituras_gas WHERE date_time >= $1 AND date_time <= $2 ORDER BY date_time DESC LIMIT $3",
-            inicio,
-            fim,
+            inicio_local,
+            fim_local,
             limite,
         )
     return [LeituraGas(**dict(registro)) for registro in registros]

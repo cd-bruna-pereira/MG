@@ -16,10 +16,15 @@ function formatPpm(value) {
 }
 
 function LineChart({ data, dataKey, color, label, unit = "ppm", theme = "light" }) {
-  const visibleData = data.slice(-10);
+  const visibleData = latestByDateDesc(data, 10).reverse();
   if (!visibleData.length) {
     return <div className="chart-wrap"><div className="chart-legend"><span className="legend-dot" style={{ background: color }} />{label}<span className="chart-unit">{unit}</span></div><p>Nenhuma leitura disponível.</p></div>;
   }
+
+  const yValues = visibleData.map((item) => item[dataKey]);
+  const yMin = Math.min(...yValues);
+  const yMax = Math.max(...yValues);
+  const yPadding = yMax === yMin ? Math.max(Math.abs(yMax) * 0.01, 1) : (yMax - yMin) * 0.15;
 
   return (
     <div className="chart-wrap">
@@ -45,7 +50,7 @@ function LineChart({ data, dataKey, color, label, unit = "ppm", theme = "light" 
           showlegend: true,
           legend: { orientation: "h", x: 1, y: 1.18, xanchor: "right", yanchor: "top", bgcolor: "rgba(255,255,255,0.92)", font: { color: theme === "light" ? "#334e68" : "#b6c5d5" } },
           xaxis: { title: { text: "Horário", standoff: 14 }, type: "date", gridcolor: theme === "light" ? "#dce6ef" : "rgba(145,165,186,.15)", tickcolor: theme === "light" ? "#60758a" : "#91a5ba", tickfont: { color: theme === "light" ? "#334e68" : "#b6c5d5" }, tickformat: "%H:%M:%S", nticks: 10, tickangle: -35, fixedrange: false },
-          yaxis: { title: { text: `Quantidade (${unit})`, standoff: 12 }, gridcolor: theme === "light" ? "#dce6ef" : "rgba(145,165,186,.15)", tickcolor: theme === "light" ? "#60758a" : "#91a5ba", tickfont: { color: theme === "light" ? "#334e68" : "#b6c5d5" }, nticks: 8, tickformat: ",~s", automargin: true, fixedrange: false },
+          yaxis: { title: { text: `Quantidade (${unit})`, standoff: 12 }, gridcolor: theme === "light" ? "#dce6ef" : "rgba(145,165,186,.15)", tickcolor: theme === "light" ? "#60758a" : "#91a5ba", tickfont: { color: theme === "light" ? "#334e68" : "#b6c5d5" }, nticks: 6, tickformat: ",.0f", separatethousands: true, exponentformat: "none", range: [yMin - yPadding, yMax + yPadding], autorange: false, automargin: true, fixedrange: false },
         }}
         config={{ responsive: true, displaylogo: false, displayModeBar: true, scrollZoom: true }}
         useResizeHandler
