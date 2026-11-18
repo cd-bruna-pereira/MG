@@ -4,8 +4,7 @@ import logging
 import math
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime
-from zoneinfo import ZoneInfo
+from datetime import datetime, timedelta, timezone
 from typing import List
 
 import asyncpg
@@ -19,7 +18,7 @@ from .calculo_concentracao import calcular_concentracao_h2, calcular_concentraca
 
 logger = logging.getLogger(__name__)
 DATABASE_URL = os.getenv("DATABASE_URL", "")
-SAO_PAULO = ZoneInfo("America/Sao_Paulo")
+SAO_PAULO = timezone(timedelta(hours=-3))
 
 
 def hora_local_naive(value: datetime) -> datetime:
