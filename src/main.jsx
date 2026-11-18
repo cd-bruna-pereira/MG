@@ -16,7 +16,7 @@ function formatPpm(value) {
 }
 
 function LineChart({ data, dataKey, color, label, unit = "ppm", theme = "light" }) {
-  const visibleData = data.slice(-100);
+  const visibleData = data.slice(-10);
   if (!visibleData.length) {
     return <div className="chart-wrap"><div className="chart-legend"><span className="legend-dot" style={{ background: color }} />{label}<span className="chart-unit">{unit}</span></div><p>Nenhuma leitura disponível.</p></div>;
   }
@@ -36,6 +36,7 @@ function LineChart({ data, dataKey, color, label, unit = "ppm", theme = "light" 
         }]}
         layout={{
           autosize: true,
+          uirevision: "gasmix-live-chart",
           height: 360,
           margin: { l: 90, r: 30, t: 48, b: 72 },
           paper_bgcolor: "rgba(0,0,0,0)",
@@ -43,7 +44,7 @@ function LineChart({ data, dataKey, color, label, unit = "ppm", theme = "light" 
           font: { color: theme === "light" ? "#334e68" : "#b6c5d5", size: 12 },
           showlegend: true,
           legend: { orientation: "h", x: 1, y: 1.18, xanchor: "right", yanchor: "top", bgcolor: "rgba(255,255,255,0.92)", font: { color: theme === "light" ? "#334e68" : "#b6c5d5" } },
-          xaxis: { title: { text: "Dia/Mês - horário", standoff: 14 }, type: "date", gridcolor: theme === "light" ? "#dce6ef" : "rgba(145,165,186,.15)", tickcolor: theme === "light" ? "#60758a" : "#91a5ba", tickfont: { color: theme === "light" ? "#334e68" : "#b6c5d5" }, tickformat: "%d/%m %H:%M", nticks: 8, tickangle: 0, fixedrange: false },
+          xaxis: { title: { text: "Horário", standoff: 14 }, type: "date", gridcolor: theme === "light" ? "#dce6ef" : "rgba(145,165,186,.15)", tickcolor: theme === "light" ? "#60758a" : "#91a5ba", tickfont: { color: theme === "light" ? "#334e68" : "#b6c5d5" }, tickformat: "%H:%M:%S", nticks: 10, tickangle: -35, fixedrange: false },
           yaxis: { title: { text: `Quantidade (${unit})`, standoff: 12 }, gridcolor: theme === "light" ? "#dce6ef" : "rgba(145,165,186,.15)", tickcolor: theme === "light" ? "#60758a" : "#91a5ba", tickfont: { color: theme === "light" ? "#334e68" : "#b6c5d5" }, nticks: 8, tickformat: ",~s", automargin: true, fixedrange: false },
         }}
         config={{ responsive: true, displaylogo: false, displayModeBar: true, scrollZoom: true }}
@@ -179,7 +180,7 @@ function App() {
       const payload = JSON.parse(event.data);
       const next = mapReading(payload);
       const date = new Date(payload.date_time);
-      setReadings((items) => [...items, next].slice(-100));
+      setReadings((items) => [...items, next].slice(-10));
       if (historyMode === "realtime") {
         setHistoryReadings((items) => [...items, next].slice(-100));
       }
@@ -257,7 +258,7 @@ function App() {
         .then((items) => {
           if (!active) return;
           const mapped = items.map(mapReading);
-          setReadings(mapped.slice(-100));
+          setReadings(mapped.slice(-10));
           setHistoryReadings(mapped.slice(-100));
         })
         .catch(() => {
@@ -265,7 +266,7 @@ function App() {
         });
     };
     loadReadings();
-    const timer = window.setInterval(loadReadings, 5000);
+    const timer = window.setInterval(loadReadings, 1000);
     return () => {
       active = false;
       window.clearInterval(timer);
