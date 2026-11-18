@@ -238,13 +238,15 @@ async def registrar_leitura_manual(leitura: LeituraGas) -> dict[str, str]:
 async def consultar_leituras(
     inicio: datetime = Query(...),
     fim: datetime = Query(...),
+    limite: int = Query(100, ge=1, le=100),
 ) -> list[LeituraGas]:
     if inicio > fim:
         raise HTTPException(status_code=400, detail="O início deve ser anterior ao fim.")
     async with app.state.db.acquire() as db:
         registros = await db.fetch(
-            "SELECT date_time, concentracao_h2, concentracao_o2, temperatura, umidade, pressao FROM leituras_gas WHERE date_time >= $1 AND date_time <= $2 ORDER BY date_time ASC",
+            "SELECT date_time, concentracao_h2, concentracao_o2, temperatura, umidade, pressao FROM leituras_gas WHERE date_time >= $1 AND date_time <= $2 ORDER BY date_time DESC LIMIT $3",
             inicio,
             fim,
+            limite,
         )
     return [LeituraGas(**dict(registro)) for registro in registros]

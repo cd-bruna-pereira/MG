@@ -88,6 +88,12 @@ function movingAverageRows(data, windowMinutes) {
   });
 }
 
+function latestByDateDesc(data, limit) {
+  return [...data]
+    .sort((a, b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime())
+    .slice(0, limit);
+}
+
 function mapReading(item) {
   const date = new Date(item.date_time);
   return {
@@ -180,9 +186,9 @@ function App() {
       const payload = JSON.parse(event.data);
       const next = mapReading(payload);
       const date = new Date(payload.date_time);
-      setReadings((items) => [...items, next].slice(-10));
+      setReadings((items) => latestByDateDesc([...items, next], 10).reverse());
       if (historyMode === "realtime") {
-        setHistoryReadings((items) => [...items, next].slice(-100));
+        setHistoryReadings((items) => latestByDateDesc([...items, next], 100));
       }
       setLastUpdated(date.toLocaleTimeString("pt-BR"));
     };
@@ -249,7 +255,7 @@ function App() {
     const loadReadings = () => {
       const end = new Date();
       const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
-      const params = new URLSearchParams({ inicio: start.toISOString(), fim: end.toISOString() });
+      const params = new URLSearchParams({ inicio: start.toISOString(), fim: end.toISOString(), limite: "100" });
       fetch(`${apiBase}/api/leituras?${params}`)
         .then((response) => {
           if (!response.ok) throw new Error("Não foi possível consultar o histórico.");
@@ -258,8 +264,8 @@ function App() {
         .then((items) => {
           if (!active) return;
           const mapped = items.map(mapReading);
-          setReadings(mapped.slice(-10));
-          setHistoryReadings(mapped.slice(-100));
+          setHistoryReadings(latestByDateDesc(mapped, 100));
+          setReadings(latestByDateDesc(mapped, 10).reverse());
         })
         .catch(() => {
           if (active) setConnectionError("Não foi possível carregar as leituras do banco.");
@@ -289,10 +295,11 @@ function App() {
       const params = new URLSearchParams({
         inicio: new Date(filterStart).toISOString(),
         fim: new Date(filterEnd).toISOString(),
+        limite: "100",
       });
       const response = await fetch(`${apiBase}/api/leituras?${params}`);
       if (!response.ok) throw new Error("Não foi possível consultar o período informado.");
-      setHistoryReadings((await response.json()).map(mapReading).slice(-100));
+      setHistoryReadings(latestByDateDesc((await response.json()).map(mapReading), 100));
     } catch (error) {
       setConnectionError(error.message);
     } finally {
@@ -400,7 +407,7 @@ function App() {
         </div>
         {connectionError && <p className="form-error">{connectionError}</p>}
         <h3 className="history-table-title">Leituras individuais ({historyReadings.length})</h3>
-        <div className="table-scroll"><table><thead><tr><th>Horário</th><th>O₂ (ppm)</th><th>H₂ (ppm)</th><th>Temperatura (°C)</th><th>Umidade (%)</th><th>Pressão (bar)</th></tr></thead><tbody>{[...historyReadings].slice(-100).reverse().map((item, index) => <tr key={`${item.dateTime}-${index}`}><td>{item.time}</td><td>{item.o2.toLocaleString("pt-BR")}</td><td>{item.h2.toLocaleString("pt-BR")}</td><td>{item.temp.toFixed(1)}</td><td>{item.humidity.toFixed(1)}</td><td>{item.pressure.toFixed(2)}</td></tr>)}</tbody></table></div>
+        <div className="table-scroll"><table><thead><tr><th>Horário</th><th>O₂ (ppm)</th><th>H₂ (ppm)</th><th>Temperatura (°C)</th><th>Umidade (%)</th><th>Pressão (bar)</th></tr></thead><tbody>{[...historyReadings].map((item, index) => <tr key={`${item.dateTime}-${index}`}><td>{item.time}</td><td>{item.o2.toLocaleString("pt-BR")}</td><td>{item.h2.toLocaleString("pt-BR")}</td><td>{item.temp.toFixed(1)}</td><td>{item.humidity.toFixed(1)}</td><td>{item.pressure.toFixed(2)}</td></tr>)}</tbody></table></div>
         <h3 className="history-table-title">Médias por janela ({historyAverages.length})</h3>
         <div className="table-scroll"><table><thead><tr><th>Horário</th><th>O₂ médio (ppm)</th><th>H₂ médio (ppm)</th><th>Temperatura (°C)</th><th>Umidade (%)</th><th>Pressão (bar)</th></tr></thead><tbody>{[...historyAverages].reverse().map((item, index) => <tr key={`average-${item.dateTime}-${index}`}><td>{item.time}</td><td>{item.o2.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}</td><td>{item.h2.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}</td><td>{item.temp.toFixed(1)}</td><td>{item.humidity.toFixed(1)}</td><td>{item.pressure.toFixed(2)}</td></tr>)}</tbody></table></div>
       </section>}
